@@ -1,7 +1,13 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { canEditTalent, requireUser, talentScopeWhere } from "@/lib/authz";
 import { addChannel, deleteChannel, updateTalent } from "@/server/actions/talents";
+import {
+  createAffiliateLinkForTalent,
+  toggleAffiliateLink,
+  updateAffiliateLinkTarget,
+} from "@/server/actions/affiliate-links";
 import { TalentForm } from "@/components/talent-form";
 import { PLATFORM_LABELS, TALENT_STATUS_LABELS, formatVnd } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +43,11 @@ export default async function TalentDetailPage({
   if (!talent) notFound();
 
   const editable = canEditTalent(user, talent.managerId);
+  const affiliateLink = await prisma.affiliateLink.findFirst({
+    where: { talentId: talent.id },
+    orderBy: { createdAt: "desc" },
+    include: { _count: { select: { clicks: true } } },
+  });
   const managers =
     user.role === "MM"
       ? [{ id: user.id, fullName: user.name }]
@@ -208,6 +219,81 @@ export default async function TalentDetailPage({
             </Button>
           </form>
         ) : null}
+      </section>
+
+      <Separator />
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">Link affiliate Dealverse</h2>
+        {affiliateLink ? (
+          <div className="max-w-xl space-y-2 text-sm">
+            <div className="flex items-center gap-2">
+              <code className="rounded bg-muted px-2 py-1 text-xs">/go/{affiliateLink.slug}</code>
+              <Badge variant={affiliateLink.isActive ? "default" : "secondary"}>
+                {affiliateLink.isActive ? "Đang bật" : "Đã tắt"}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Ghép thêm domain khi deploy thật, VD https://tenmien-cua-ban.com/go/{affiliateLink.slug}
+            </p>
+            <p>
+              Đích hiện tại:{" "}
+              <a
+                href={affiliateLink.targetUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="hover:underline"
+              >
+                {affiliateLink.targetUrl}
+              </a>
+            </p>
+            <p className="text-muted-foreground">
+              Tổng số click: {affiliateLink._count.clicks.toLocaleString("vi-VN")} — xem chi tiết
+              theo nguồn/thời gian ở{" "}
+              <Link href="/affiliate" className="hover:underline">
+                Aff link Dealverse
+              </Link>
+            </p>
+
+            {editable ? (
+              <div className="flex flex-wrap items-end gap-4 pt-1">
+                <form action={toggleAffiliateLink.bind(null, affiliateLink.id)}>
+                  <Button type="submit" variant="outline" size="sm">
+                    {affiliateLink.isActive ? "Tắt link" : "Bật lại"}
+                  </Button>
+                </form>
+                <form
+                  action={updateAffiliateLinkTarget.bind(null, affiliateLink.id)}
+                  className="flex items-end gap-2"
+                >
+                  <div className="grid gap-1">
+                    <Label htmlFor="targetUrl" className="text-xs">
+                      Sửa URL đích
+                    </Label>
+                    <Input
+                      id="targetUrl"
+                      name="targetUrl"
+                      type="url"
+                      defaultValue={affiliateLink.targetUrl}
+                      className="w-80"
+                    />
+                  </div>
+                  <Button type="submit" variant="secondary" size="sm">
+                    Lưu
+                  </Button>
+                </form>
+              </div>
+            ) : null}
+          </div>
+        ) : editable ? (
+          <form action={createAffiliateLinkForTalent.bind(null, talent.id)}>
+            <Button type="submit" variant="secondary">
+              Tạo link affiliate
+            </Button>
+          </form>
+        ) : (
+          <p className="text-sm text-muted-foreground">Chưa có link affiliate</p>
+        )}
       </section>
     </div>
   );

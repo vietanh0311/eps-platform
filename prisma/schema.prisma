@@ -153,11 +153,12 @@ model Talent {
   createdAt             DateTime     @default(now()) @map("created_at")
   updatedAt             DateTime     @updatedAt @map("updated_at")
 
-  channels     TalentChannel[]
-  assignments  CampaignAssignment[]
-  videos       Video[]
-  payrollItems PayrollItem[]
-  bookingDeals BookingDeal[]
+  channels       TalentChannel[]
+  assignments    CampaignAssignment[]
+  videos         Video[]
+  payrollItems   PayrollItem[]
+  bookingDeals   BookingDeal[]
+  affiliateLinks AffiliateLink[]
 
   @@map("talents")
 }
@@ -503,4 +504,62 @@ model BookingDeal {
   @@index([dealMonth])
   @@index([mmId])
   @@map("booking_deals")
+}
+
+// ===== Nhóm 7 — Dealverse (affiliate link) — Module 5 =====
+// Nguồn thiết kế: docs/DB_SCHEMA.md nhóm 7. dealverse.pages.dev là trang deal/voucher công khai
+// của bên thứ ba, không hợp tác/không có API với EPS — EPS chỉ tự quản 1 lớp redirect độc lập
+// /go/<slug> để ghi nhận Talent nào đưa traffic tới, không phụ thuộc Dealverse "biết" gì.
+
+// 1 Talent thường có 1 link, tạo tự động khi thêm Talent mới (xem createTalent trong
+// src/server/actions/talents.ts) — không đặt unique(talentId) vì DB_SCHEMA.md không yêu cầu và
+// việc "ghép tay" tạo lại cho 20 Talent cũ trước Module 5 dùng đúng logic idempotent
+// (ensureAffiliateLink), không phải ràng buộc DB.
+model AffiliateLink {
+  id        String   @id @default(cuid())
+  talentId  String   @map("talent_id")
+  talent    Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  slug      String   @unique
+  targetUrl String   @default("https://dealverse.pages.dev") @map("target_url")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  clicks      LinkClick[]
+  conversions LinkConversion[]
+
+  @@index([talentId])
+  @@map("affiliate_links")
+}
+
+model LinkClick {
+  id        String        @id @default(cuid())
+  linkId    String        @map("link_id")
+  link      AffiliateLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  clickedAt DateTime      @default(now()) @map("clicked_at")
+  referrer  String?
+  // Suy ra từ ?utm_source= hoặc hostname referrer lúc ghi — không tính lại sau, xem parseSource
+  // trong src/app/go/[slug]/route.ts.
+  source    String?
+  userAgent String?       @map("user_agent")
+  // SHA-256(ip + AUTH_SECRET) — không bao giờ lưu IP thô.
+  ipHash    String?       @map("ip_hash")
+
+  @@index([linkId, clickedAt])
+  @@map("link_clicks")
+}
+
+// Dự phòng theo DB_SCHEMA.md — CHƯA xác minh được Dealverse có trả dữ liệu chuyển đổi hay không,
+// nên module này chỉ migrate bảng, KHÔNG có luồng ghi nào (không bịa nguồn dữ liệu).
+model LinkConversion {
+  id         String        @id @default(cuid())
+  linkId     String        @map("link_id")
+  link       AffiliateLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  occurredAt DateTime      @map("occurred_at")
+  value      Int?
+  source     String?
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  @@index([linkId])
+  @@map("link_conversions")
 }

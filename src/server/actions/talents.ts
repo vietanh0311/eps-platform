@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
 import { canEditTalent, requireRole } from "@/lib/authz";
 import { Platform, TalentStatus } from "@/generated/prisma/enums";
+import { ensureAffiliateLink } from "@/server/affiliate/links";
 
 const talentSchema = z.object({
   fullName: z.string().trim().min(1, "Thiếu họ tên"),
@@ -71,6 +72,13 @@ export async function createTalent(formData: FormData) {
     entityId: talent.id,
     detail: `Tạo Talent ${talent.fullName}`,
   });
+  // Module 5 — tự động tạo link affiliate Dealverse cho Talent mới. Lỗi ở đây (hiếm) không được
+  // chặn việc tạo Talent — CFO/MM vẫn tạo được link tay sau ở trang chi tiết Talent.
+  try {
+    await ensureAffiliateLink(talent.id, talent.fullName);
+  } catch (err) {
+    console.error("Không tạo được link affiliate tự động cho Talent mới", talent.id, err);
+  }
   revalidatePath("/talents");
   redirect(`/talents/${talent.id}`);
 }
