@@ -78,6 +78,11 @@ export const PAYMENT_STATUS_LABELS: Record<string, string> = {
   PAID: "Đã trả",
 };
 
+export const SCRAPE_RUN_STATUS_LABELS: Record<string, string> = {
+  SUCCESS: "Thành công",
+  FAILED: "Lỗi",
+};
+
 export function formatVnd(amount: number): string {
   return new Intl.NumberFormat("vi-VN").format(amount) + " đ";
 }

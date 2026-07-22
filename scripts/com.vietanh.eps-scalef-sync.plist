@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd job: gọi scripts/scalef-sync-daily.sh mỗi 30 phút. Bản thân script tự quyết định có
+  đồng bộ hay không (hôm nay sync rồi thì thoát ngay) — cùng pattern với com.vietanh.vcd-sync.
+
+  Cài:   cp scripts/com.vietanh.eps-scalef-sync.plist ~/Library/LaunchAgents/
+         launchctl load ~/Library/LaunchAgents/com.vietanh.eps-scalef-sync.plist
+  Gỡ:    launchctl unload ~/Library/LaunchAgents/com.vietanh.eps-scalef-sync.plist
+  Chạy thử ngay: launchctl start com.vietanh.eps-scalef-sync
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vietanh.eps-scalef-sync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/VietAnh/Claude/eps-platform/scripts/scalef-sync-daily.sh</string>
+  </array>
+
+  <!-- Mỗi 30 phút. Script tự bỏ qua nếu hôm nay đã sync xong. -->
+  <key>StartInterval</key>
+  <integer>1800</integer>
+
+  <!-- Chạy luôn 1 lần khi load/đăng nhập máy, không đợi hết 30 phút. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Lỗi bất thường của chính launchd (không phải log của sync). -->
+  <key>StandardErrorPath</key>
+  <string>/Users/VietAnh/Claude/eps-platform/scalef-sync-launchd.log</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/VietAnh/Claude/eps-platform</string>
+</dict>
+</plist>
