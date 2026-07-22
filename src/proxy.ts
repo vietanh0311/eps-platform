@@ -6,6 +6,7 @@ import { authConfig } from "@/auth.config";
 export default NextAuth(authConfig).auth;
 
 export const config = {
-  // Chạy trên mọi route trừ static assets và API auth
-  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico|.*\\.(?:png|svg|jpg|ico)$).*)"],
+  // Chạy trên mọi route trừ static assets, API auth, và /go/<slug> (redirect affiliate Dealverse
+  // — Module 5, công khai không đăng nhập, xem src/app/go/[slug]/route.ts).
+  matcher: ["/((?!api/auth|go/|_next/static|_next/image|favicon.ico|.*\\.(?:png|svg|jpg|ico)$).*)"],
 };

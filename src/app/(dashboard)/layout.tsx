@@ -23,6 +23,7 @@ function navItems(role: string) {
   if (role === "CFO" || role === "MM") {
     items.push({ href: "/payroll", label: "Lương & thưởng" });
     items.push({ href: "/booking", label: "Booking" });
+    items.push({ href: "/affiliate", label: "Aff link Dealverse" });
   }
   if (role === "TECH" || role === "CFO") items.push({ href: "/scalef", label: "Đồng bộ ScaleF" });
   if (role === "CFO") items.push({ href: "/admin/users", label: "Tài khoản" });
