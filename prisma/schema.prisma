@@ -1,0 +1,428 @@
+// EPS Internal Operations Platform — Prisma schema, Module 1 + 2.
+// Nguồn thiết kế: docs/DB_SCHEMA.md (nhóm 1: users, nhóm 2: talents + talent_channels, audit_logs;
+// nhóm 3: campaigns + campaign_assignments, nhóm 4: videos + video_pipeline_events).
+// Các nhóm bảng còn lại (ScaleF, lương thưởng, Dealverse) sẽ thêm theo từng module.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  CFO
+  MM
+  TALENT
+  TECH
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum TalentStatus {
+  ACTIVE
+  PAUSED
+  STOPPED
+}
+
+enum Platform {
+  TIKTOK
+  FACEBOOK
+  INSTAGRAM
+  YOUTUBE
+  OTHER
+}
+
+enum CampaignSource {
+  AMBASSADOR
+  MANUAL
+  INTERNAL
+}
+
+enum CampaignStatus {
+  NEW
+  RUNNING
+  DONE
+}
+
+enum AssignmentStatus {
+  ASSIGNED
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+// ===== Nhóm 6 — Lương & thưởng =====
+
+enum RewardApplyTo {
+  MM
+  TALENT
+}
+
+enum PayrollPeriodStatus {
+  DRAFT
+  APPROVED
+  PAID
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+}
+
+// Luồng duyệt nội dung của MM (cột "Hệ thống duyệt" trong sheet cũ).
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  NEEDS_FIX
+}
+
+// Luồng xử lý của team Tech — tách hẳn khỏi ReviewStatus vì là việc của 2 team khác nhau.
+enum PipelineStatus {
+  NOT_IN_PIPELINE
+  RECEIVED
+  ADS_DONE
+  ENGAGEMENT_DONE
+  SENT_SCALEF
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  fullName     String     @map("full_name")
+  role         Role
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  talentProfile  Talent?    @relation("TalentAccount")
+  managedTalents Talent[]   @relation("TalentManager")
+  auditLogs      AuditLog[]
+
+  managedCampaigns   Campaign[]           @relation("CampaignManager")
+  assignmentsCreated CampaignAssignment[] @relation("AssignmentCreator")
+  videosLogged       Video[]              @relation("VideoLogger")
+  videosSubmitted    Video[]              @relation("ScalefSubmitter")
+  videosConfirmed    Video[]              @relation("ScalefConfirmer")
+  pipelineEvents     VideoPipelineEvent[]
+
+  // Module 6 — Lương & thưởng
+  referredTalents      Talent[]      @relation("TalentReferrer")
+  payrollItems         PayrollItem[]
+  approvedPayrollPeriods PayrollPeriod[] @relation("PayrollApprover")
+  bookingDealsManaged  BookingDeal[] @relation("BookingManager")
+  bookingDealsSold     BookingDeal[] @relation("BookingSeller")
+  bookingDealsCreated  BookingDeal[] @relation("BookingCreator")
+
+  @@map("users")
+}
+
+model Talent {
+  id                    String       @id @default(cuid())
+  // Tài khoản đăng nhập của Talent — nullable, bật sau khi cần (đã chốt với CFO)
+  userId                String?      @unique @map("user_id")
+  user                  User?        @relation("TalentAccount", fields: [userId], references: [id])
+  fullName              String       @map("full_name")
+  phone                 String?
+  contentDirection      String?      @map("content_direction")
+  status                TalentStatus @default(ACTIVE)
+  managerId             String       @map("manager_id")
+  manager               User         @relation("TalentManager", fields: [managerId], references: [id])
+  productionFeePerVideo Int          @default(0) @map("production_fee_per_video")
+  joinedAt              DateTime?    @map("joined_at") @db.Date
+  notes                 String?
+  // Định danh trên ScaleF (KOC Ambassador) — khóa nối dữ liệu scrape/thưởng ở Module 5.
+  scalefUsername        String?      @map("scalef_username")
+  // Hashtag cá nhân ScaleF: ScaleF dùng hashtag này để gắn video/view/thưởng cho đúng KOC.
+  scalefHashtag         String?      @map("scalef_hashtag")
+  // MST / tài khoản nhận tiền — dùng cho Module 6 (tính lương/thưởng).
+  taxCode               String?      @map("tax_code")
+  // Module 6 — ai giới thiệu Talent này vào công ty (khoá cho thưởng tuyển dụng, trả cho người
+  // giới thiệu chứ không phải chính Talent — CFO xác nhận 2026-07-22).
+  referredById           String?      @map("referred_by_id")
+  referredBy             User?        @relation("TalentReferrer", fields: [referredById], references: [id])
+  // Mốc thưởng tuyển dụng đã trả — 1 lần/mốc, không lặp hàng tháng. Null = chưa trả.
+  referralMilestone1PaidAt DateTime?  @map("referral_milestone1_paid_at")
+  referralMilestone2PaidAt DateTime?  @map("referral_milestone2_paid_at")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+
+  channels     TalentChannel[]
+  assignments  CampaignAssignment[]
+  videos       Video[]
+  payrollItems PayrollItem[]
+  bookingDeals BookingDeal[]
+
+  @@map("talents")
+}
+
+model TalentChannel {
+  id            String   @id @default(cuid())
+  talentId      String   @map("talent_id")
+  talent        Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  platform      Platform
+  handle        String
+  url           String
+  followerCount Int?     @map("follower_count")
+  isPrimary     Boolean  @default(false) @map("is_primary")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("talent_channels")
+}
+
+// ===== Nhóm 3 — Campaign / Brief =====
+
+model Campaign {
+  id            String         @id @default(cuid())
+  name          String
+  brandName     String         @map("brand_name")
+  source        CampaignSource @default(AMBASSADOR)
+  brief         String?
+  contractValue Int?           @map("contract_value")
+  // Module 6 — cơ chế thưởng MM theo KPI views, CFO đặt khi biết deal (nullable: campaign chưa có
+  // cơ chế thì tính lương bỏ qua phần commission của campaign đó, không tính bừa).
+  pricePerView      Int? @map("price_per_view") // đồng/view công ty bán cho nhãn hàng
+  fixedCostPerView  Int? @map("fixed_cost_per_view") // chi phí vendor buff/ads nội bộ, đồng/view
+  costCeilingPct    Int? @map("cost_ceiling_pct") // % chi phí max (0-100); null = tra tier mặc định theo pricePerView
+  // Nullable: campaign đồng bộ từ Ambassador chưa có ai nhận. MM tự "Nhận" (set mmId = mình).
+  mmId          String?        @map("mm_id")
+  mm            User?          @relation("CampaignManager", fields: [mmId], references: [id])
+  startDate     DateTime?      @map("start_date") @db.Date
+  endDate       DateTime?      @map("end_date") @db.Date
+  status        CampaignStatus @default(NEW)
+  notes         String?
+  // Link thể lệ gốc (Ambassador / tfluencer) để MM mở brief gốc từ trong app.
+  sourceUrl     String?        @map("source_url")
+  // Khóa định danh ngoài: module đồng bộ Ambassador upsert theo khóa này (vd "ambassador:<_id>"),
+  // nhờ vậy chạy lại không tạo campaign trùng. NULL = campaign tạo tay.
+  externalKey   String?        @unique @map("external_key")
+
+  // ===== Các cột dưới đây do đồng bộ Ambassador làm chủ — sync GHI ĐÈ mỗi lần chạy.
+  // Cột phía trên (name/brief/mmId/status/contractValue/notes/orderVideoCount/
+  // internalDeadline/isUrgent/brandName) là của người dùng, sync KHÔNG BAO GIỜ đụng.
+  descHtml         String?   @map("desc_html") // mô tả HTML thô từ Ambassador — KHÔNG render trực tiếp, phải strip tag
+  coverUrl         String?   @map("cover_url")
+  lastSyncedAt     DateTime? @map("last_synced_at") // lần cuối feed còn thấy _id này
+  raw              Json?     // payload gốc, ghi đè mỗi lần sync — dùng để debug khi API đổi cấu trúc
+
+  // Cột người dùng tự điền, không liên quan sync
+  orderVideoCount  Int?      @map("order_video_count") // "Số video Order" (sheet cũ)
+  internalDeadline DateTime? @map("internal_deadline") @db.Date
+  isUrgent         Boolean   @default(false) @map("is_urgent") // cột "Mức độ" (Khẩn cấp)
+
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  assignments CampaignAssignment[]
+  videos      Video[]
+
+  @@index([status])
+  @@index([mmId])
+  @@map("campaigns")
+}
+
+model CampaignAssignment {
+  id           String           @id @default(cuid())
+  campaignId   String           @map("campaign_id")
+  campaign     Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  talentId     String           @map("talent_id")
+  talent       Talent           @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  assignedById String           @map("assigned_by")
+  assignedBy   User             @relation("AssignmentCreator", fields: [assignedById], references: [id])
+  deadline     DateTime?        @db.Date
+  status       AssignmentStatus @default(ASSIGNED)
+  note         String?
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  // Một Talent chỉ được giao 1 lần trong cùng campaign.
+  @@unique([campaignId, talentId])
+  @@map("campaign_assignments")
+}
+
+// ===== Nhóm 4 — Log video & Pipeline Tech =====
+
+// Bảng trung tâm. Video có 3 luồng trạng thái ĐỘC LẬP, khớp 3 cột check trong sheet cũ:
+//  1. reviewStatus            — MM duyệt nội dung.
+//  2. pipelineStatus          — Tech chạy ads/tương tác rồi nộp ScaleF.
+//  3. scalefSubmitted/Confirmed — Tech nộp lên ScaleF, MM check xác nhận lại (đối soát).
+model Video {
+  id             String         @id @default(cuid())
+  talentId       String         @map("talent_id")
+  talent         Talent         @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  // Video ngoài campaign vẫn log được nên để nullable.
+  campaignId     String?        @map("campaign_id")
+  campaign       Campaign?      @relation(fields: [campaignId], references: [id])
+  airDate        DateTime       @map("air_date") @db.Date
+  platform       Platform
+  videoUrl       String         @map("video_url")
+  // "Mã air clip" của sheet cũ (vd 2026.07.02.01) — giữ để đối chiếu ngược khi cần.
+  airClipCode    String?        @map("air_clip_code")
+  briefComment   String?        @map("brief_comment")
+  feedback       String?
+  reviewStatus   ReviewStatus   @default(PENDING) @map("review_status")
+  pipelineStatus PipelineStatus @default(NOT_IN_PIPELINE) @map("pipeline_status")
+  productionCost Int            @default(0) @map("production_cost")
+  // MM log link thay cho Talent (Talent không có tài khoản đăng nhập).
+  loggedById     String         @map("logged_by")
+  loggedBy       User           @relation("VideoLogger", fields: [loggedById], references: [id])
+
+  // TECH là người nộp video lên hệ thống ScaleF (CFO chốt 2026-07-22 — khác mô tả cũ trong
+  // DB_SCHEMA.md vốn ghi MM nộp). Việc nộp chính là bước cuối của pipeline Tech.
+  scalefSubmittedById String?   @map("scalef_submitted_by")
+  scalefSubmittedBy   User?     @relation("ScalefSubmitter", fields: [scalefSubmittedById], references: [id])
+  scalefSubmittedAt   DateTime? @map("scalef_submitted_at")
+  // MM check xác nhận phần Tech đã nộp — bước đối soát, không ghi đè cột nộp ở trên.
+  scalefConfirmedById String?   @map("scalef_confirmed_by")
+  scalefConfirmedBy   User?     @relation("ScalefConfirmer", fields: [scalefConfirmedById], references: [id])
+  scalefConfirmedAt   DateTime? @map("scalef_confirmed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  pipelineEvents VideoPipelineEvent[]
+
+  @@index([airDate])
+  @@index([talentId])
+  @@index([videoUrl])
+  @@map("videos")
+}
+
+// Lịch sử chuyển trạng thái pipeline — nguồn số liệu đo "video chậm tiến độ" ở module dashboard.
+model VideoPipelineEvent {
+  id         String         @id @default(cuid())
+  videoId    String         @map("video_id")
+  video      Video          @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  fromStatus PipelineStatus @map("from_status")
+  toStatus   PipelineStatus @map("to_status")
+  byUserId   String         @map("by_user")
+  byUser     User           @relation(fields: [byUserId], references: [id])
+  at         DateTime       @default(now())
+  note       String?
+
+  @@index([videoId])
+  @@map("video_pipeline_events")
+}
+
+// Log mỗi lần chạy đồng bộ tự động (Ambassador campaigns, và ScaleF ở Module 5 sau này —
+// dùng chung bảng để CFO chỉ cần nhìn 1 nơi biết mọi tự động hóa còn sống hay không).
+model SyncRun {
+  id         String    @id @default(cuid())
+  source     String // "ambassador_campaigns"
+  startedAt  DateTime  @default(now()) @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  ok         Boolean   @default(false)
+  items      Int       @default(0)
+  error      String?
+
+  @@index([source, startedAt])
+  @@map("sync_runs")
+}
+
+model AuditLog {
+  id       String   @id @default(cuid())
+  userId   String   @map("user_id")
+  user     User     @relation(fields: [userId], references: [id])
+  action   String // CREATE | UPDATE | DELETE | LOGIN
+  entity   String // tên bảng: users, talents, talent_channels...
+  entityId String   @map("entity_id")
+  detail   String? // mô tả ngắn thay đổi
+  at       DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+// ===== Nhóm 6 — Lương & thưởng (Module 3) =====
+
+// Công thức/tỷ lệ có phiên bản theo thời gian — đổi cơ chế không phải đổi cấu trúc DB.
+// applies_to=MM: name="campaign_commission" (savingsRate, profitShareRate, avgViewsPerVideo,
+// taxRate, costCeilingTiers), name="booking_split" (talentShare/mmShare/companyShare/sellerShare).
+// applies_to=TALENT: name="referral_bonus", name="top_performer_bonus", name="quantity_tier_bonus".
+// Xem công thức đầy đủ + số liệu đã xác minh tại eps-platform/data/co-che-luong-thuong-mm.md.
+model RewardPolicy {
+  id             String        @id @default(cuid())
+  appliesTo      RewardApplyTo @map("applies_to")
+  name           String
+  params         Json
+  effectiveFrom  DateTime      @map("effective_from") @db.Date
+  effectiveTo    DateTime?     @map("effective_to") @db.Date
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  @@index([appliesTo, name, effectiveFrom])
+  @@map("reward_policies")
+}
+
+model PayrollPeriod {
+  id           String              @id @default(cuid())
+  month        String              @unique // "YYYY-MM"
+  status       PayrollPeriodStatus @default(DRAFT)
+  approvedById String?             @map("approved_by")
+  approvedBy   User?               @relation("PayrollApprover", fields: [approvedById], references: [id])
+  approvedAt   DateTime?           @map("approved_at")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+
+  items PayrollItem[]
+
+  @@map("payroll_periods")
+}
+
+// 1 dòng / 1 người hưởng / 1 kỳ: userId cho MM (commission campaign, booking, thưởng giới thiệu)
+// HOẶC talentId cho Talent (thưởng Top, thưởng số lượng) — đúng 1 trong 2, không cả hai.
+model PayrollItem {
+  id          String        @id @default(cuid())
+  periodId    String        @map("period_id")
+  period      PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  userId      String?       @map("user_id")
+  user        User?         @relation(fields: [userId], references: [id])
+  talentId    String?       @map("talent_id")
+  talent      Talent?       @relation(fields: [talentId], references: [id])
+  baseAmount  Int           @default(0) @map("base_amount") // luôn 0 cho MM — không có lương cứng
+  bonusAmount Int           @default(0) @map("bonus_amount")
+  // Chi tiết từng khoản (từng campaign, từng booking deal, từng mốc thưởng) để tự đối chiếu —
+  // thay hẳn file report lương cũ. Xem cấu trúc trong compute.ts.
+  breakdown   Json
+  total       Int           @default(0)
+  note        String?
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  @@index([periodId])
+  @@index([userId])
+  @@index([talentId])
+  @@map("payroll_items")
+}
+
+// Deal booking (mẫu 25% - MM 25% - công ty 25% - người bán deal 25%, xem RewardPolicy
+// name="booking_split") — tách khỏi Campaign vì 1 tháng có nhiều deal nhỏ theo brand, không phải
+// 1 campaign lớn theo KPI views như nhóm commission ở trên.
+model BookingDeal {
+  id            String        @id @default(cuid())
+  mmId          String        @map("mm_id") // MM quản lý Talent dùng cho deal
+  mm            User          @relation("BookingManager", fields: [mmId], references: [id])
+  sellerId      String        @map("seller_id") // người chốt được deal — mặc định = mmId lúc tạo
+  seller        User          @relation("BookingSeller", fields: [sellerId], references: [id])
+  talentId      String?       @map("talent_id") // mẫu dùng cho deal, nếu đã xác định
+  talent        Talent?       @relation(fields: [talentId], references: [id])
+  brandName     String        @map("brand_name")
+  castAmount    Int           @map("cast_amount") // giá trị deal, VND
+  dealMonth     String        @map("deal_month") // "YYYY-MM" — gom vào payroll_period theo tháng này
+  paymentStatus PaymentStatus @default(PENDING) @map("payment_status")
+  note          String?
+  createdById   String        @map("created_by")
+  createdBy     User          @relation("BookingCreator", fields: [createdById], references: [id])
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  @@index([dealMonth])
+  @@index([mmId])
+  @@map("booking_deals")
+}

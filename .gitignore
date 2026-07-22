@@ -39,3 +39,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma
+
+# Dữ liệu nguồn nhạy cảm (SĐT, MST, tài khoản nhận tiền) — không commit
+/data/
+
+# Tài liệu skill do trình cài tự sinh (vendored, không phải code dự án) + cấu hình máy cục bộ
+/.agents/
+/.windsurf/
+.claude/skills/
+skills-lock.json
+.claude/settings.local.json
