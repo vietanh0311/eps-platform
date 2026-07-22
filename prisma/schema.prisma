@@ -288,6 +288,7 @@ model Video {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   pipelineEvents VideoPipelineEvent[]
+  scalefVideos   ScalefVideo[]
 
   @@index([airDate])
   @@index([talentId])
@@ -324,6 +325,83 @@ model SyncRun {
 
   @@index([source, startedAt])
   @@map("sync_runs")
+}
+
+// ===== Nhóm 5 — Đồng bộ ScaleF (Module 4) =====
+// Nguồn thiết kế: docs/DB_SCHEMA.md nhóm 5. Dữ liệu ScaleF tách khỏi videos nội bộ — khớp qua
+// scalef_key/hashtag, không phải FK bắt buộc, vì scraper/API có thể thấy video chưa khớp được.
+
+enum ScrapeRunStatus {
+  SUCCESS
+  FAILED
+}
+
+model ScalefVideo {
+  id                String    @id @default(cuid())
+  // Ghép với video nội bộ qua hashtag Talent — nullable vì API có thể trả content chưa khớp được
+  // (hashtag trùng nhiều Talent, hoặc chưa tìm thấy video nội bộ tương ứng) — xem màn ghép tay /scalef.
+  videoId           String?   @map("video_id")
+  video             Video?    @relation(fields: [videoId], references: [id])
+  scalefKey         String    @unique @map("scalef_key")
+  scalefUrl         String    @map("scalef_url")
+  // Caption/title thô từ ScaleF — KHÔNG có trong docs/DB_SCHEMA.md nhóm 5 gốc, thêm để màn ghép
+  // tay (/scalef) hiện lại hashtag + tính lại xung đột mà không cần gọi lại API ScaleF mỗi lần tải trang.
+  title             String?
+  approvedOnScalef  Boolean   @default(false) @map("approved_on_scalef")
+  firstSeenAt       DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt        DateTime  @map("last_seen_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  dailyStats ScalefDailyStat[]
+
+  @@index([videoId])
+  @@map("scalef_videos")
+}
+
+// Snapshot mỗi lần chạy sync — chỉ thêm không sửa, tính được tăng trưởng view/thưởng theo kỳ.
+model ScalefDailyStat {
+  id            String      @id @default(cuid())
+  scalefVideoId String      @map("scalef_video_id")
+  scalefVideo   ScalefVideo @relation(fields: [scalefVideoId], references: [id], onDelete: Cascade)
+  statDate      DateTime    @map("stat_date") @db.Date
+  views         Int
+  rewardAmount  Int         @default(0) @map("reward_amount")
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  @@unique([scalefVideoId, statDate])
+  @@map("scalef_daily_stats")
+}
+
+// Log mỗi lần chạy sync ScaleF — hiện trên dashboard Tech, scraper/API gãy là phát hiện trong ngày.
+model ScrapeRun {
+  id            String          @id @default(cuid())
+  startedAt     DateTime        @map("started_at")
+  finishedAt    DateTime        @map("finished_at")
+  status        ScrapeRunStatus
+  itemsFound    Int             @default(0) @map("items_found")
+  errorMessage  String?         @map("error_message")
+
+  @@index([startedAt])
+  @@map("scrape_runs")
+}
+
+// Thu thập sẵn "Event" (campaign/thử thách phía ScaleF, GET /events) cho module auto-brief sau
+// này — Module 4 CHỈ upsert, không xử lý/dùng gì ở đây. raw ghi đè mỗi lần sync, cùng kiểu
+// campaigns.raw đã thiết kế cho Ambassador.
+model ScalefEvent {
+  id            String    @id @default(cuid())
+  scalefEventId String    @unique @map("scalef_event_id")
+  name          String
+  status        String?
+  startAt       DateTime? @map("start_at")
+  endAt         DateTime? @map("end_at")
+  raw           Json?
+  lastSyncedAt  DateTime? @map("last_synced_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("scalef_events")
 }
 
 model AuditLog {

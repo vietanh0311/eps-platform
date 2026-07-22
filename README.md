@@ -45,13 +45,17 @@ src/server/payroll/compute.ts # engine tính nháp lương/thưởng (module 3) 
                              # cho app và scripts/reconcile-payroll.ts
 scripts/seed-reward-policies.ts # seed reward_policies (công thức MM + thưởng Talent, versioned)
 scripts/reconcile-payroll.ts  # đối chiếu số tính ra với report lương MM Giang/Hà thật
+src/server/scalef/client.ts  # gọi API admin ScaleF (ambassador.koc.com.vn/api/admin), validate zod
+src/server/scalef/sync.ts    # syncScalef() — module 4, khớp Talent qua hashtag, upsert scalef_*
+scripts/sync-scalef.ts       # CLI đồng bộ ScaleF (npm run scalef:sync), dùng chung cho launchd
+scripts/compare-avg-views.ts # báo cáo đối chiếu view giả định vs view thật (chỉ đọc)
 src/app/(dashboard)/         # các trang sau đăng nhập: /, /talents, /campaigns, /videos,
-                             # /payroll, /booking, /admin/users
+                             # /payroll, /booking, /scalef, /admin/users
 src/app/login/               # trang đăng nhập
 src/generated/prisma/        # code Prisma tự sinh — KHÔNG sửa tay
 ```
 
-## Phân quyền (module 1 + 2 + 3)
+## Phân quyền (module 1 + 2 + 3 + 4)
 
 | Chức năng | CFO/COO | MM | Tech |
 |---|---|---|---|
@@ -67,6 +71,7 @@ src/generated/prisma/        # code Prisma tự sinh — KHÔNG sửa tay
 | Đặt cơ chế thưởng Campaign (đồng/view...) | ✅ | ❌ | ❌ |
 | Tạo/duyệt/trả kỳ lương, quản lý booking deal | ✅ | ❌ | ❌ |
 | Xem lương/thưởng (`/payroll`, `/booking`) | Tất cả | Chỉ phần của mình | ❌ (không có quyền) |
+| Đồng bộ ScaleF, ghép tay video chưa khớp (`/scalef`) | ✅ | ❌ | ✅ |
 
 Quyền được kiểm tra 2 lớp: proxy chặn route, và mọi server action tự check lại
 (`requireRole`) — nên kể cả gọi thẳng API cũng không vượt quyền được.
@@ -86,6 +91,8 @@ npm run db:import-videos                                 # liệt kê tháng có
 npm run db:import-videos -- --months=2026-01..2026-07    # xem trước; thêm --write để ghi thật
 npm run db:seed-reward-policies                          # seed công thức lương/thưởng (idempotent)
 npm run payroll:reconcile                                # đối chiếu số tính ra với report MM thật
+npm run scalef:sync                                      # đồng bộ ScaleF thật (cần SCALEF_ADMIN_* trong .env)
+npm run scalef:compare-views                             # so view giả định (80.000) vs view thật ScaleF
 ```
 
 > Lưu ý Next 16: sau khi đổi `schema.prisma` + migrate, phải **khởi động lại dev server**
@@ -142,3 +149,39 @@ lượng video. Cả 3 đọc từ `reward_policies` applies_to=TALENT.
 1) → `Video.productionCost` cũng = 0 cho video đã import trước module 3 → phần "Chi phí sản xuất"
 trong lương MM sẽ sai tới khi backfill xong (đã tách thành việc riêng, xem đối chiếu trong
 `data/co-che-luong-thuong-mm.md`).
+
+## Đồng bộ ScaleF (module 4)
+
+API-first, không scraper: `src/server/scalef/client.ts` gọi thẳng
+`ambassador.koc.com.vn/api/admin` (login `/staffs/login`, cache token trong bộ nhớ theo lần chạy).
+**Đã verify bằng tài khoản dịch vụ thật (2026-07-22)** — cấu trúc response, field name, và cách
+lọc dưới đây là dữ liệu thật, không còn là giả định.
+
+⚠ **`GET /contents` là danh sách TOÀN MẠNG LƯỚI ScaleF** (xác nhận thật ~44.000 content, không
+riêng EPS) — vì vậy client KHÔNG paginate toàn bộ, mà gọi `keyword=<hashtag>` riêng cho từng
+Talent đang active (server search substring trong `title`, đã verify khớp đúng 1 creator/lần).
+
+1. **Cần tài khoản dịch vụ ScaleF riêng** (không phải tài khoản cá nhân) — điền vào `.env`:
+   `SCALEF_ADMIN_EMAIL`, `SCALEF_ADMIN_PASSWORD` (`SCALEF_ADMIN_BASE_URL` để trống dùng default
+   `https://ambassador.koc.com.vn/api/admin` — đúng domain đã verify, cẩn thận nếu điền tay vì 1
+   domain gần giống `ambassador.scalef.com` KHÔNG hoạt động, trả HTTP 405).
+2. `npm run scalef:sync` (hoặc nút "Đồng bộ ngay" trên `/scalef`) — khớp Talent qua
+   `talents.scalefHashtag` trích từ hashtag trong caption video, tự phát hiện hashtag trùng nhiều
+   Talent (không hardcode), chỉ tự ghép `video_id` khi thu hẹp được đúng 1 Talent + đúng 1 video
+   ứng viên (đã nộp ScaleF, chưa bị `ScalefVideo` khác nhận). Trường hợp khác để trống, xử lý ở màn
+   ghép tay `/scalef` (quyền TECH + CFO) — sync không bao giờ ghi đè `video_id` đã ghép tay.
+   **Trong thực tế đa số content cần ghép tay** (lần chạy thật đầu: 145 content, 0 tự gán được —
+   Talent thường có hàng chục video/tháng nên hashtag một mình không đủ chỉ đúng 1 video), đây là
+   hành vi đúng thiết kế (thà hỏi tay còn hơn gán sai thưởng), không phải lỗi.
+3. `npm run scalef:compare-views` — báo cáo CHỈ ĐỌC so `avgViewsPerVideo` giả định (80.000, đang
+   dùng tính lương module 3) với view thật mới nhất trong `scalef_daily_stats`, theo tháng/Talent.
+   Không ghi `reward_policies`, không đụng payroll. Cần ghép tay xong ở bước 2 trước mới có số để so.
+4. **Tự động hoá free trên máy CFO** (cùng pattern launchd job `vcd-sync` đang chạy cho
+   `vcd-clean`): cài `scripts/scalef-sync-daily.sh` + `scripts/com.vietanh.eps-scalef-sync.plist`
+   (mỗi 30 phút, tự bỏ qua nếu hôm nay sync rồi):
+   ```bash
+   cp scripts/com.vietanh.eps-scalef-sync.plist ~/Library/LaunchAgents/
+   launchctl load ~/Library/LaunchAgents/com.vietanh.eps-scalef-sync.plist
+   ```
+   Khi lên VPS/Coolify thật: chuyển sang Coolify Scheduled Task chạy `npm run scalef:sync`, gỡ
+   launchd job cũ (`launchctl unload ...`) — không cần sửa code.

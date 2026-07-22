@@ -12,7 +12,9 @@
     "db:migrate": "prisma migrate dev",
     "db:import-talents": "tsx scripts/import-talents.ts",
     "db:import-videos": "tsx scripts/import-videos.ts",
-    "payroll:reconcile": "tsx scripts/reconcile-payroll.ts"
+    "payroll:reconcile": "tsx scripts/reconcile-payroll.ts",
+    "scalef:sync": "tsx scripts/sync-scalef.ts",
+    "scalef:compare-views": "tsx scripts/compare-avg-views.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.0",
