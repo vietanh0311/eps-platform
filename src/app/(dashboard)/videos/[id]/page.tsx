@@ -124,7 +124,13 @@ export default async function VideoDetailPage({
         <dt className="text-muted-foreground">Người log</dt>
         <dd>{video.loggedBy.fullName}</dd>
         <dt className="text-muted-foreground">Chi phí sản xuất</dt>
-        <dd>{formatVnd(video.productionCost)}</dd>
+        <dd>
+          {video.productionCost != null ? (
+            formatVnd(video.productionCost)
+          ) : (
+            <Badge variant="destructive">⚠ Chưa điền chi phí</Badge>
+          )}
+        </dd>
         {video.airClipCode ? (
           <>
             <dt className="text-muted-foreground">Mã air clip</dt>
@@ -291,14 +297,15 @@ export default async function VideoDetailPage({
                 </select>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="productionCost">Chi phí sản xuất (VND)</Label>
+                <Label htmlFor="productionCost">Chi phí sản xuất (VND) *</Label>
                 <Input
                   id="productionCost"
                   name="productionCost"
                   type="number"
                   min={0}
                   step={1000}
-                  defaultValue={video.productionCost}
+                  required
+                  defaultValue={video.productionCost ?? ""}
                 />
               </div>
             </div>

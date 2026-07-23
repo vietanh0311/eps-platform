@@ -100,6 +100,31 @@ export async function markPeriodPaid(periodId: string) {
   redirect(`/payroll/${periodId}?saved=1`);
 }
 
+// Mở lại kỳ lương (APPROVED hoặc PAID → DRAFT) khi cần sửa video thuộc tháng đó — CFO chốt cho
+// phép mở lại cả kỳ Đã trả (PAID), không chỉ Đã duyệt. KHÔNG tự tính lại payroll_items — bấm nút
+// "Tính nháp" (createOrRecomputeDraft) đã có sẵn sau khi sửa xong video, tránh mất dữ liệu nếu
+// recompute xảy ra ngoài ý muốn giữa lúc đang sửa dở.
+export async function reopenPeriod(periodId: string) {
+  const user = await requireSystemAdmin();
+  const period = await prisma.payrollPeriod.findUnique({ where: { id: periodId } });
+  if (!period) redirect("/payroll");
+  if (period.status === "DRAFT") {
+    redirect(`/payroll/${periodId}?error=${encodeURIComponent("Kỳ lương đang ở trạng thái Nháp rồi")}`);
+  }
+
+  await prisma.payrollPeriod.update({ where: { id: periodId }, data: { status: "DRAFT" } });
+  await logAudit({
+    userId: user.id,
+    action: "UPDATE",
+    entity: "payroll_periods",
+    entityId: periodId,
+    detail: `Mở lại kỳ lương ${period.month} (từ ${period.status} về DRAFT) để sửa video`,
+  });
+  revalidatePath("/payroll");
+  revalidatePath(`/payroll/${periodId}`);
+  redirect(`/payroll/${periodId}?saved=1`);
+}
+
 // ===== Cơ chế Campaign (đồng/view, chi phí cố định/view, %chi phí max) =====
 
 const rewardTermsSchema = z.object({

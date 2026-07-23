@@ -208,7 +208,7 @@ Việc cần làm:
   docs/PROJECT_EPS.md + README.
 ```
 
-## Bổ sung Module 2/3 — Chi phí video: bắt buộc điền, điền nhanh, khóa sau khi CFO chốt lương
+## Bổ sung Module 2/3 — Chi phí video: bắt buộc điền, điền nhanh, khóa sau khi CFO chốt lương (✅ đã code)
 
 ```
 Đọc docs/PROJECT_EPS.md, docs/DB_SCHEMA.md và eps-platform/README.md trước khi làm gì. Đọc code

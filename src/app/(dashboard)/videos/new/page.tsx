@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireRole, talentScopeWhere } from "@/lib/authz";
 import { createVideos } from "@/server/actions/videos";
+import { formatVnd } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,7 +65,7 @@ export default async function NewVideoPage({
               >
                 {talents.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {t.fullName}
+                    {t.fullName} — mặc định {formatVnd(t.productionFeePerVideo)}
                   </option>
                 ))}
               </select>
@@ -93,14 +94,15 @@ export default async function NewVideoPage({
               </select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="productionCost">Chi phí sản xuất / video (VND)</Label>
+              <Label htmlFor="productionCost">Chi phí sản xuất / video (VND) *</Label>
               <Input
                 id="productionCost"
                 name="productionCost"
                 type="number"
                 min={0}
                 step={1000}
-                placeholder="Để trống = lấy theo hồ sơ Talent"
+                required
+                placeholder="Xem giá mặc định của Talent ở ô bên trái, tự xác nhận/sửa số thật"
               />
             </div>
           </div>

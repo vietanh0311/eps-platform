@@ -71,10 +71,10 @@ export async function getProductionCostStatus(): Promise<ProductionCostStatus> {
   for (const v of videos) {
     if (v.airDate < PRODUCTION_COST_BACKFILL_CUTOFF) {
       preCutoffTotal++;
-      if (v.productionCost === 0) preCutoffZero++;
+      if (v.productionCost === null) preCutoffZero++;
     } else {
       postCutoffTotal++;
-      if (v.productionCost === 0) postCutoffZero++;
+      if (v.productionCost === null) postCutoffZero++;
     }
   }
   return { preCutoffTotal, preCutoffZero, postCutoffTotal, postCutoffZero };
@@ -122,7 +122,7 @@ async function buildMonthlySeries(months: string[], rangeStart: Date): Promise<M
   const videos = await prisma.video.findMany({ where: { airDate: { gte: rangeStart } }, select: { airDate: true, productionCost: true } });
   for (const v of videos) {
     const b = buckets.get(monthKey(v.airDate));
-    if (b) b.costProduction += v.productionCost;
+    if (b) b.costProduction += v.productionCost ?? 0;
   }
 
   // Chi phí ADS/SALARY/OTHER luôn tính; PRODUCTION chỉ tính khi KHÔNG gắn video cụ thể (tránh đếm

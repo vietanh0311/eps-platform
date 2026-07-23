@@ -118,7 +118,7 @@ async function patchProductionCosts(mmId: string, month: string, reportLines: Re
   const [y, m] = month.split("-").map(Number);
   const start = new Date(Date.UTC(y, m - 1, 1));
   const end = new Date(Date.UTC(m === 12 ? y + 1 : y, m === 12 ? 0 : m, 1));
-  const backup: Array<{ id: string; productionCost: number }> = [];
+  const backup: Array<{ id: string; productionCost: number | null }> = [];
   for (const line of reportLines) {
     const campaign = await prisma.campaign.findFirst({ where: { name: line.campaign } });
     if (!campaign) continue;
@@ -136,7 +136,7 @@ async function patchProductionCosts(mmId: string, month: string, reportLines: Re
   return backup;
 }
 
-async function restoreProductionCosts(backup: Array<{ id: string; productionCost: number }>) {
+async function restoreProductionCosts(backup: Array<{ id: string; productionCost: number | null }>) {
   for (const v of backup) {
     await prisma.video.update({ where: { id: v.id }, data: { productionCost: v.productionCost } });
   }

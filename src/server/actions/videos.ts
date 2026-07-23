@@ -14,8 +14,22 @@ import {
   requireUser,
   type SessionUser,
 } from "@/lib/authz";
+import { isSystemAdmin } from "@/lib/roles";
+import { isMonthLocked, monthKeyOf } from "@/server/payroll/compute";
 import { detectPlatform, isHttpUrl, parseLinkList } from "@/lib/video-url";
 import { PipelineStatus, ReviewStatus } from "@/generated/prisma/enums";
+
+// Video thuộc kỳ lương đã duyệt/đã trả bị khóa sửa productionCost/airDate/campaignId với MM —
+// system admin (Team Tech/Team Finance, quyền ngang nhau) luôn sửa được. Xem
+// server/payroll/compute.ts (isMonthLocked) + server/actions/payroll.ts (reopenPeriod).
+async function assertNotLocked(user: SessionUser, airDate: Date, errorRedirectTo: string) {
+  if (isSystemAdmin(user.role)) return;
+  if (await isMonthLocked(monthKeyOf(airDate))) {
+    redirect(
+      `${errorRedirectTo}?error=${encodeURIComponent("Kỳ lương tháng này đã duyệt — liên hệ Team Tech/Team Finance nếu cần sửa")}`,
+    );
+  }
+}
 
 // Log video hàng ngày. Video có 3 luồng trạng thái độc lập:
 //   1. reviewStatus                — MM duyệt nội dung
@@ -45,7 +59,7 @@ const createVideosSchema = z.object({
   airDate: z.string().min(1, "Thiếu ngày air"),
   links: z.string().min(1, "Chưa dán link video nào"),
   briefComment: z.string().trim().optional(),
-  productionCost: z.string().trim().optional(),
+  productionCost: z.string().trim().min(1, "Chưa điền chi phí sản xuất"),
 });
 
 export async function createVideos(formData: FormData) {
@@ -79,9 +93,13 @@ export async function createVideos(formData: FormData) {
     campaignId = campaign.id;
   }
 
-  const cost = d.productionCost
-    ? Number(d.productionCost.replace(/\D/g, ""))
-    : talent.productionFeePerVideo;
+  const cost = Number(d.productionCost.replace(/\D/g, ""));
+  if (!Number.isFinite(cost) || cost < 0) {
+    redirect(`/videos/new?error=${encodeURIComponent("Chi phí sản xuất không hợp lệ")}`);
+  }
+
+  const airDate = new Date(d.airDate);
+  await assertNotLocked(user, airDate, "/videos/new");
 
   // Bỏ qua link đã có trong hệ thống để MM dán lại cả danh sách cũng không tạo trùng.
   const existing = await prisma.video.findMany({
@@ -95,7 +113,6 @@ export async function createVideos(formData: FormData) {
     redirect(`/videos?error=${encodeURIComponent("Tất cả link đã có trong hệ thống, không tạo thêm")}`);
   }
 
-  const airDate = new Date(d.airDate);
   await prisma.video.createMany({
     data: fresh.map((url) => ({
       talentId: talent.id,
@@ -104,7 +121,7 @@ export async function createVideos(formData: FormData) {
       platform: detectPlatform(url),
       videoUrl: url,
       briefComment: d.briefComment || null,
-      productionCost: Number.isFinite(cost) ? cost : 0,
+      productionCost: cost,
       loggedById: user.id,
     })),
   });
@@ -127,7 +144,7 @@ const updateVideoSchema = z.object({
   briefComment: z.string().trim().optional(),
   feedback: z.string().trim().optional(),
   reviewStatus: z.enum(ReviewStatus),
-  productionCost: z.string().trim().optional(),
+  productionCost: z.string().trim().min(1, "Chưa điền chi phí sản xuất"),
 });
 
 export async function updateVideo(videoId: string, formData: FormData) {
@@ -143,17 +160,26 @@ export async function updateVideo(videoId: string, formData: FormData) {
     );
   }
   const d = parsed.data;
-  const cost = d.productionCost ? Number(d.productionCost.replace(/\D/g, "")) : video.productionCost;
+  const cost = Number(d.productionCost.replace(/\D/g, ""));
+  if (!Number.isFinite(cost) || cost < 0) {
+    redirect(`/videos/${videoId}?error=${encodeURIComponent("Chi phí sản xuất không hợp lệ")}`);
+  }
+
+  const newAirDate = new Date(d.airDate);
+  // Khóa theo cả tháng hiện tại của video (đang thuộc kỳ đã duyệt) LẪN tháng mới nếu đổi airDate
+  // sang tháng khác — tránh MM "né" khóa bằng cách dời ngày air.
+  await assertNotLocked(user, video.airDate, `/videos/${videoId}`);
+  await assertNotLocked(user, newAirDate, `/videos/${videoId}`);
 
   await prisma.video.update({
     where: { id: videoId },
     data: {
       campaignId: d.campaignId || null,
-      airDate: new Date(d.airDate),
+      airDate: newAirDate,
       briefComment: d.briefComment || null,
       feedback: d.feedback || null,
       reviewStatus: d.reviewStatus,
-      productionCost: Number.isFinite(cost) ? cost : 0,
+      productionCost: cost,
     },
   });
   await logAudit({
@@ -165,6 +191,58 @@ export async function updateVideo(videoId: string, formData: FormData) {
   });
   refreshVideoViews(videoId);
   redirect(`/videos/${videoId}?saved=1`);
+}
+
+// Điền nhanh 1 giá cho nhiều video "chưa có chi phí" cùng lúc (màn /videos?cost=missing) — bỏ qua
+// (không lỗi cả loạt) video người dùng không có quyền sửa hoặc đang thuộc kỳ lương đã khóa.
+const bulkCostSchema = z.object({
+  productionCost: z.string().trim().min(1, "Chưa điền chi phí sản xuất"),
+});
+
+export async function bulkSetProductionCost(formData: FormData) {
+  const user = await requireRole("CFO", "TECH", "MM");
+  const videoIds = formData.getAll("videoIds").map(String).filter(Boolean);
+  if (videoIds.length === 0) {
+    redirect(`/videos?cost=missing&error=${encodeURIComponent("Chưa chọn video nào")}`);
+  }
+
+  const parsed = bulkCostSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    redirect(`/videos?cost=missing&error=${encodeURIComponent(parsed.error.issues[0]?.message ?? "Dữ liệu không hợp lệ")}`);
+  }
+  const cost = Number(parsed.data.productionCost.replace(/\D/g, ""));
+  if (!Number.isFinite(cost) || cost < 0) {
+    redirect(`/videos?cost=missing&error=${encodeURIComponent("Chi phí sản xuất không hợp lệ")}`);
+  }
+
+  const videos = await prisma.video.findMany({
+    where: { id: { in: videoIds } },
+    select: { id: true, airDate: true, talent: { select: { managerId: true } } },
+  });
+
+  const admin = isSystemAdmin(user.role);
+  const updatableIds: string[] = [];
+  for (const v of videos) {
+    if (!canReviewVideo(user, v.talent.managerId)) continue;
+    if (!admin && (await isMonthLocked(monthKeyOf(v.airDate)))) continue;
+    updatableIds.push(v.id);
+  }
+
+  if (updatableIds.length > 0) {
+    await prisma.video.updateMany({ where: { id: { in: updatableIds } }, data: { productionCost: cost } });
+  }
+  const skipped = videoIds.length - updatableIds.length;
+
+  await logAudit({
+    userId: user.id,
+    action: "UPDATE",
+    entity: "videos",
+    entityId: "bulk",
+    detail: `Điền nhanh chi phí ${cost}đ cho ${updatableIds.length} video (bỏ qua ${skipped} video đã khóa/không có quyền)`,
+  });
+  revalidatePath("/videos");
+  revalidatePath("/");
+  redirect(`/videos?cost=missing&bulkUpdated=${updatableIds.length}&bulkSkipped=${skipped}`);
 }
 
 export async function deleteVideo(videoId: string) {

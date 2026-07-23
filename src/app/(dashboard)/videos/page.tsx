@@ -3,12 +3,14 @@ import { prisma } from "@/lib/prisma";
 import {
   canConfirmScalef,
   canEditPipeline,
+  canReviewVideo,
   requireUser,
   videoScopeWhere,
   type SessionUser,
 } from "@/lib/authz";
 import { isSystemAdmin } from "@/lib/roles";
 import {
+  bulkSetProductionCost,
   confirmScalefSubmission,
   submitToScalef,
   undoConfirmScalef,
@@ -20,6 +22,7 @@ import {
   REVIEW_STATUS_LABELS,
   formatDate,
   formatDateTime,
+  formatVnd,
 } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,10 +56,13 @@ type SearchParams = {
   pipeline?: string;
   mm?: string;
   scalef?: string;
+  cost?: string;
   page?: string;
   created?: string;
   skipped?: string;
   error?: string;
+  bulkUpdated?: string;
+  bulkSkipped?: string;
 };
 
 export default async function VideosPage({
@@ -84,10 +90,11 @@ export default async function VideosPage({
     };
   }
   if (sp.scalef && sp.scalef in SCALEF_FILTERS) Object.assign(where, SCALEF_FILTERS[sp.scalef]);
+  if (sp.cost === "missing") where.productionCost = null;
 
   const page = Math.max(1, Number(sp.page ?? "1") || 1);
 
-  const [videos, total, talents, campaigns, managers, unsubmittedCount, awaitingCount] =
+  const [videos, total, talents, campaigns, managers, unsubmittedCount, awaitingCount, costMissingCount] =
     await Promise.all([
       prisma.video.findMany({
         where,
@@ -113,6 +120,7 @@ export default async function VideosPage({
         : prisma.user.findMany({ where: { role: "MM" }, orderBy: { fullName: "asc" } }),
       prisma.video.count({ where: { ...scope, ...SCALEF_FILTERS.unsubmitted } }),
       prisma.video.count({ where: { ...scope, ...SCALEF_FILTERS.awaiting } }),
+      prisma.video.count({ where: { ...scope, productionCost: null } }),
     ]);
 
   const canLog = isSystemAdmin(user.role) || user.role === "MM";
@@ -153,8 +161,14 @@ export default async function VideosPage({
       {sp.error ? (
         <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.error}</p>
       ) : null}
+      {sp.bulkUpdated ? (
+        <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
+          Đã điền chi phí cho {sp.bulkUpdated} video
+          {Number(sp.bulkSkipped) > 0 ? `, bỏ qua ${sp.bulkSkipped} video đã khóa/không có quyền` : ""}.
+        </p>
+      ) : null}
 
-      {/* Hai hàng đợi việc: Tech nộp trước, MM xác nhận sau */}
+      {/* Hàng đợi việc: Tech nộp ScaleF trước, MM xác nhận sau, chi phí sản xuất bắt buộc */}
       <div className="flex flex-wrap gap-2">
         <Link
           href="/videos?scalef=unsubmitted"
@@ -168,6 +182,12 @@ export default async function VideosPage({
         >
           {user.role === "MM" ? "Chờ bạn xác nhận" : "Chờ MM xác nhận"}:{" "}
           <strong>{awaitingCount}</strong>
+        </Link>
+        <Link
+          href="/videos?cost=missing"
+          className="rounded-md border px-3 py-2 text-sm hover:bg-accent"
+        >
+          Chưa có chi phí: <strong>{costMissingCount}</strong>
         </Link>
         <Link href="/videos" className="rounded-md border px-3 py-2 text-sm hover:bg-accent">
           Xem tất cả
@@ -275,6 +295,20 @@ export default async function VideosPage({
             <option value="confirmed">MM đã xác nhận</option>
           </select>
         </div>
+        <div className="grid gap-1">
+          <label className="text-xs text-muted-foreground" htmlFor="cost">
+            Chi phí
+          </label>
+          <select
+            id="cost"
+            name="cost"
+            defaultValue={sp.cost ?? ""}
+            className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+          >
+            <option value="">Tất cả</option>
+            <option value="missing">Chưa có chi phí</option>
+          </select>
+        </div>
         {user.role !== "MM" ? (
           <div className="grid gap-1">
             <label className="text-xs text-muted-foreground" htmlFor="mm">
@@ -304,16 +338,42 @@ export default async function VideosPage({
         {total} video khớp bộ lọc{totalPages > 1 ? ` — trang ${page}/${totalPages}` : ""}
       </p>
 
+      {sp.cost === "missing" && videos.length > 0 ? (
+        <form
+          id="bulk-cost-form"
+          action={bulkSetProductionCost}
+          className="flex flex-wrap items-end gap-3 rounded-md border bg-accent/30 p-3"
+        >
+          <div className="grid gap-1">
+            <label className="text-xs text-muted-foreground" htmlFor="bulkProductionCost">
+              Điền nhanh chi phí (VND) cho video đã chọn
+            </label>
+            <Input
+              id="bulkProductionCost"
+              name="productionCost"
+              type="number"
+              min={0}
+              step={1000}
+              required
+              className="w-48"
+            />
+          </div>
+          <Button type="submit">Áp dụng cho video đã chọn</Button>
+        </form>
+      ) : null}
+
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
+              {sp.cost === "missing" ? <TableHead className="w-8" /> : null}
               <TableHead>Ngày air</TableHead>
               <TableHead>Talent</TableHead>
               <TableHead>Campaign</TableHead>
               <TableHead>Link</TableHead>
               <TableHead>Duyệt</TableHead>
               <TableHead>Pipeline</TableHead>
+              <TableHead>Chi phí</TableHead>
               <TableHead>ScaleF</TableHead>
               <TableHead />
             </TableRow>
@@ -321,13 +381,20 @@ export default async function VideosPage({
           <TableBody>
             {videos.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
                   Chưa có video nào khớp bộ lọc
                 </TableCell>
               </TableRow>
             ) : (
               videos.map((v) => (
                 <TableRow key={v.id}>
+                  {sp.cost === "missing" ? (
+                    <TableCell>
+                      {canReviewVideo(user, v.talent.managerId) ? (
+                        <input type="checkbox" name="videoIds" value={v.id} form="bulk-cost-form" />
+                      ) : null}
+                    </TableCell>
+                  ) : null}
                   <TableCell className="text-sm whitespace-nowrap">{formatDate(v.airDate)}</TableCell>
                   <TableCell className="text-sm">{v.talent.fullName}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">
@@ -355,6 +422,13 @@ export default async function VideosPage({
                   </TableCell>
                   <TableCell className="text-sm">
                     {PIPELINE_STATUS_LABELS[v.pipelineStatus]}
+                  </TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">
+                    {v.productionCost != null ? (
+                      formatVnd(v.productionCost)
+                    ) : (
+                      <Badge variant="destructive">Chưa điền</Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-xs">
                     {v.scalefSubmittedAt ? (

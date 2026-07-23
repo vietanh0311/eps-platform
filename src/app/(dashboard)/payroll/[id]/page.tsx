@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { payrollItemScopeWhere, requireUser } from "@/lib/authz";
 import { isSystemAdmin } from "@/lib/roles";
-import { approvePeriod, markPeriodPaid } from "@/server/actions/payroll";
+import { approvePeriod, markPeriodPaid, reopenPeriod } from "@/server/actions/payroll";
 import { PAYROLL_PERIOD_STATUS_LABELS, formatVnd } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -217,6 +217,13 @@ export default async function PayrollPeriodDetailPage({
           {period.status === "APPROVED" ? (
             <form action={markPeriodPaid.bind(null, period.id)}>
               <Button type="submit">Đánh dấu đã trả</Button>
+            </form>
+          ) : null}
+          {period.status === "APPROVED" || period.status === "PAID" ? (
+            <form action={reopenPeriod.bind(null, period.id)}>
+              <Button type="submit" variant="outline">
+                Mở lại kỳ lương
+              </Button>
             </form>
           ) : null}
           {period.approvedBy ? (

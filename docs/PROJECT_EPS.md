@@ -442,12 +442,39 @@ Rủi ro đã chấp nhận:
     NHIỀU Talent khác nhau (Thư Ngân, Ly, @iamm.quynhanhh) — có thể 2 người này đứng sau nhiều
     profile Talent trong hệ thống (MCN quản lý nhiều kênh), hoặc dữ liệu hashtag gốc từ Excel Module 1
     bị sai cho nhóm này. CFO nên xác nhận trước khi điền username hàng loạt.
-- Tiếp theo theo lộ trình: 2 việc bổ sung vẫn đang chờ code (không phụ thuộc Module 6), làm
-  trước/sau tùy CFO:
+- **2026-07-23 — Bổ sung Module 2/3: Chi phí video bắt buộc (HOÀN THÀNH).** 309/309 video cũ +
+  8/8 video mới đều `production_cost=0` (nghĩa là "chưa điền") khiến lợi nhuận dashboard/lương
+  không đáng tin — CFO yêu cầu ô nhập bắt buộc, filter/điền nhanh cho video cũ, khóa sửa sau khi
+  chốt kỳ lương.
+  - **Đổi `Video.productionCost` sang nullable** (`Int?`, theo CFO chọn qua Plan Mode) — `null` =
+    chưa điền, `0` = xác nhận thật sự miễn phí. Migration chuyển toàn bộ 317 video hiện `=0` (xác
+    nhận trong docs là "chưa điền", không phải free thật) sang `NULL`.
+  - **Bắt buộc điền**: ô chi phí ở `/videos/new` và trang sửa video giờ `required`, không còn
+    fallback ngầm về `Talent.productionFeePerVideo` khi bỏ trống — dropdown Talent hiện kèm giá mặc
+    định để MM tham khảo và tự gõ số thật. Badge "⚠ Chưa điền chi phí" hiện ở trang chi tiết video
+    và cột "Chi phí" trong danh sách `/videos`.
+  - **Filter + điền nhanh**: chip "Chưa có chi phí: N" + dropdown lọc `cost=missing` ở `/videos`;
+    khi lọc, mỗi dòng có checkbox + 1 ô giá dùng chung + nút "Áp dụng cho video đã chọn"
+    (`bulkSetProductionCost`, `src/server/actions/videos.ts`) — ghi 1 dòng `audit_logs` tổng hợp,
+    bỏ qua (không lỗi cả loạt) video không có quyền sửa hoặc đang khóa.
+  - **Khóa sửa sau khi chốt kỳ lương**: `isMonthLocked`/`monthKeyOf` mới (`src/server/payroll/compute.ts`)
+    — kỳ lương `APPROVED`/`PAID` khóa `productionCost`/`airDate`/`campaignId` của video thuộc tháng
+    đó với MM; Team Tech/Team Finance (system admin, quyền ngang nhau) luôn sửa được, khác mô tả
+    gốc trong `docs/MODULE_PROMPTS.md` (viết trước PR parity module-6, lúc đó ghi "chỉ CFO"). Thêm
+    `reopenPeriod` (CFO chốt qua Plan Mode: cho mở lại cả `APPROVED` lẫn `PAID` về `DRAFT`, không
+    giới hạn chỉ `APPROVED`) + nút "Mở lại kỳ lương" ở `/payroll/[id]` — không tự tính lại
+    `payroll_items`, CFO/Tech bấm "Tính nháp lại" sau khi sửa xong.
+  - **Verify thật trên browser**: log video mới thiếu chi phí bị chặn submit (validate HTML +
+    server); bulk-fill 2 video thật → cập nhật đúng + audit_logs ghi 1 dòng tổng hợp; tạo kỳ lương
+    thử tháng 2026-03 → duyệt → MM Giang sửa chi phí video tháng đó bị chặn đúng thông báo, CFO sửa
+    được; bấm "Mở lại kỳ lương" → về Draft thành công. **Đã dọn dữ liệu test** sau khi verify (trả
+    3 video test về `NULL`, xóa kỳ lương 2026-03 thử nghiệm) — DB thật không còn dấu vết, vẫn đúng
+    317/317 video `NULL` và chỉ còn kỳ lương thật 2026-06 (PAID). `npm run build` sạch.
+- Tiếp theo theo lộ trình: 1 việc bổ sung vẫn đang chờ code (không phụ thuộc Module 6):
   - "Bổ sung Module 2 — Đồng bộ Ambassador" (thiết kế xong) — tham khảo `src/server/scalef/` (đã
     code, đã verify thật) làm khuôn mẫu, cùng dạng bài (gọi API ngoài, validate zod, advisory
     lock, bảng log).
-  - "Bổ sung Module 2/3 — Chi phí video" (bắt buộc điền/filter/điền nhanh/khóa sau chốt lương).
+  - ~~"Bổ sung Module 2/3 — Chi phí video"~~ đã xong 2026-07-23, xem mục ngay trên.
 - Bộ prompt sẵn cho từng module (CFO copy vào chat mới, mỗi module 1 chat): `docs/MODULE_PROMPTS.md`.
 - File gốc `PROJECT_EPS.txt` (bị lỗi encoding) đã được thay bằng file này; có thể xóa file cũ.
 

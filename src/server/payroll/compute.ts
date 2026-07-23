@@ -26,6 +26,19 @@ function monthRange(month: string): { start: Date; end: Date } {
   return { start, end };
 }
 
+// "YYYY-MM" của 1 ngày cụ thể — cùng cách monthKey() đã dùng ở server/dashboard/finance.ts, khớp
+// định dạng PayrollPeriod.month. Dùng để tra video thuộc kỳ lương nào (xem isMonthLocked).
+export function monthKeyOf(d: Date): string {
+  return d.toISOString().slice(0, 7);
+}
+
+// Kỳ lương đã duyệt (APPROVED) hoặc đã trả (PAID) → khóa sửa productionCost/airDate/campaignId
+// của video thuộc tháng đó cho MM (system admin luôn sửa được — xem src/server/actions/videos.ts).
+export async function isMonthLocked(month: string): Promise<boolean> {
+  const period = await prisma.payrollPeriod.findUnique({ where: { month }, select: { status: true } });
+  return period?.status === "APPROVED" || period?.status === "PAID";
+}
+
 type CostCeilingTier = { minPricePerView: number; maxPricePerView: number | null; pct: number };
 
 type CampaignCommissionParams = {

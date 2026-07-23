@@ -274,7 +274,8 @@ model Video {
   feedback       String?
   reviewStatus   ReviewStatus   @default(PENDING) @map("review_status")
   pipelineStatus PipelineStatus @default(NOT_IN_PIPELINE) @map("pipeline_status")
-  productionCost Int            @default(0) @map("production_cost")
+  // null = chưa điền (bắt buộc xác nhận khi log video mới); 0 = video xác nhận thật sự miễn phí.
+  productionCost Int?           @map("production_cost")
   // MM log link thay cho Talent (Talent không có tài khoản đăng nhập).
   loggedById     String         @map("logged_by")
   loggedBy       User           @relation("VideoLogger", fields: [loggedById], references: [id])
