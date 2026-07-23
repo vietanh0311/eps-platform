@@ -24,6 +24,7 @@ function navItems(role: Role) {
   }
   if (isSystemAdmin(role)) {
     items.push({ href: "/scalef", label: "Đồng bộ ScaleF" });
+    items.push({ href: "/expenses", label: "Chi phí" });
     items.push({ href: "/admin/users", label: "Tài khoản" });
   }
   return items;

@@ -70,8 +70,13 @@ scripts/compare-avg-views.ts # báo cáo đối chiếu view giả định vs vi
 src/server/affiliate/links.ts        # slugify + ensureAffiliateLink() — module 5, idempotent
 src/server/actions/affiliate-links.ts # tạo/tắt link, sửa target_url — đều check canEditTalent
 src/app/go/[slug]/route.ts   # redirect công khai /go/<slug> — module 5, KHÔNG qua proxy.ts
+src/server/insights/view-variance.ts # so view giả định vs thật — dùng chung cho script + insight rule
+src/server/insights/engine.ts # runInsightRules() — module 6, 5 rule cảnh báo, dedupe/auto-resolve theo _key trong data
+scripts/run-insights.ts      # CLI chạy engine insight (npm run insights:run), dùng chung cho cron
+src/server/dashboard/        # finance.ts/team.ts/pipeline.ts — số liệu dashboard, thuần đọc, tách khỏi UI
+src/app/(dashboard)/_components/ # AdminDashboard/MmDashboard/charts/banners/insights-panel — module 6
 src/app/(dashboard)/         # các trang sau đăng nhập: /, /talents, /campaigns, /videos,
-                             # /payroll, /booking, /affiliate, /scalef, /admin/users
+                             # /payroll, /booking, /affiliate, /scalef, /expenses, /admin/users
 src/app/login/               # trang đăng nhập
 src/generated/prisma/        # code Prisma tự sinh — KHÔNG sửa tay
 ```
@@ -111,6 +116,10 @@ kiện `role === "CFO"` rời rạc ở từng nơi.
 | Đồng bộ ScaleF, ghép tay video chưa khớp (`/scalef`) | ✅ | ❌ |
 | Tạo/tắt link affiliate, sửa `target_url` (trang chi tiết Talent) | ✅ | Chỉ Talent của mình |
 | Xem performance click (`/affiliate`) | Tất cả | Chỉ Talent mình quản lý |
+| Tạo/sửa/xóa chi phí (`/expenses`) | ✅ (không phân biệt người tạo) | ❌ |
+| Chạy insight engine ("Chạy insight ngay" trên Tổng quan) | ✅ | ❌ (chỉ xem) |
+| Xem dashboard Tổng quan | Bản gộp tài chính + vận hành (như nhau cả 2 role) | Bản riêng: hiệu suất team mình |
+| Xem cảnh báo (insight) | Tất cả insight có role mình trong `visibleToRoles` | Chỉ insight liên quan team mình (lọc theo `managerId`) |
 
 Quyền được kiểm tra 2 lớp: proxy chặn route (`src/auth.config.ts`), và mọi server action tự check
 lại (`requireRole`/`requireSystemAdmin`) — nên kể cả gọi thẳng API cũng không vượt quyền được. Sửa
@@ -134,6 +143,7 @@ npm run db:seed-reward-policies                          # seed công thức lư
 npm run payroll:reconcile                                # đối chiếu số tính ra với report MM thật
 npm run scalef:sync                                      # đồng bộ ScaleF thật (cần SCALEF_ADMIN_* trong .env)
 npm run scalef:compare-views                             # so view giả định (80.000) vs view thật ScaleF
+npm run insights:run                                      # chạy engine insight rule-based (module 6), in tóm tắt
 ```
 
 > Lưu ý Next 16: sau khi đổi `schema.prisma` + migrate, phải **khởi động lại dev server**
@@ -255,3 +265,51 @@ công ty**). Cùng chữ "giới thiệu/referral" nhưng 2 khái niệm không 
    mình quản lý (dùng chung `talentScopeWhere` — không có phân quyền riêng cho module này).
 4. **`link_conversions`** đã có bảng trong DB (dự phòng) nhưng **chưa có luồng ghi nào** — chưa
    xác minh được Dealverse có trả dữ liệu chuyển đổi hay không.
+
+## Dashboard + Insight (module 6)
+
+> Lưu ý đặt tên: nhánh/PR "module-6-team-tech-finance-parity" (đã merge trước module này) thật ra
+> là việc cho Team Tech/Team Finance quyền ngang nhau (xem mục "Phân quyền" ở trên), KHÔNG phải
+> module Dashboard/Insight — trùng số ngoài ý muốn. Module 6 THẬT (mô tả dưới đây, theo
+> `docs/MODULE_PROMPTS.md`) là phần dashboard + cảnh báo tự động.
+
+Trang Tổng quan (`/`) giờ gộp 2 phần: dải thẻ số liệu nhanh cũ (mọi role) + dashboard riêng theo
+nhóm quyền — **`AdminDashboard`** (Team Tech + Team Finance, dùng chung 1 view vì 2 role đã ngang
+quyền từ PR parity ở trên: gồm cả phần tài chính lẫn phần vận hành pipeline/ScaleF, khác thiết kế
+gốc trong `docs/MODULE_PROMPTS.md` vốn tách riêng CFO/Tech — quyết định đổi này ghi trong
+`docs/PROJECT_EPS.md`) và **`MmDashboard`** (MM, chỉ số liệu team mình).
+
+1. **`src/server/dashboard/finance.ts`** — doanh thu (`contractValue` theo tháng `Campaign.startDate`
+   + ScaleF thật CHỈ tính video đã ghép Talent ở `/scalef`), chi phí (`Video.productionCost` +
+   `Expense` ADS/SALARY/OTHER/PRODUCTION-không-gắn-video + `PayrollItem.total` đã tính sẵn ở module
+   3), lợi nhuận, chuỗi 6 tháng gần nhất, top 5 Talent/Campaign theo số video. Cũng tính 2 số liệu
+   cảnh báo bắt buộc: tỉ lệ `scalef_videos` đã ghép Talent, và tỉ lệ video chưa điền chi phí sản
+   xuất (tách riêng trước/sau ngày backfill 2026-07-22).
+2. **`src/server/dashboard/pipeline.ts`** — phễu số video theo `pipelineStatus`, số `scalef_videos`
+   chưa ghép, lần đồng bộ ScaleF gần nhất (đọc lại, không đồng bộ trùng UI của `/scalef`).
+3. **`src/server/dashboard/team.ts`** — số liệu team MM (`talentScopeWhere`/`videoScopeWhere` sẵn
+   có), "video chậm tiến độ" đọc thẳng insight `VIDEO_LATE` đang mở thay vì tính lại ngưỡng 48h.
+4. **`src/server/insights/engine.ts`** (`runInsightRules()`, chạy qua `npm run insights:run` hoặc
+   nút "Chạy insight ngay" trên Tổng quan — server action `runInsightsNow`, quyền
+   `requireSystemAdmin()`) — 5 rule, ghi bảng `insights`:
+   - `VIDEO_LATE` — video quá 48h chưa qua bước pipeline tiếp theo (theo `video_pipeline_events`).
+   - `VIEW_DROP` — view (đọc từ `scalef_daily_stats`, số **lũy kế**, luôn lấy delta ngày gần nhất
+     so trung bình 7 ngày trước) giảm >30%, chỉ tính video đã ghép ScaleF.
+   - `SCRAPER_FAILED` — đọc `scrape_runs`/`ScrapeRun` (**không phải** `sync_runs`/`SyncRun`, bảng đó
+     dành cho đồng bộ Ambassador chưa code).
+   - `TALENT_INACTIVE` — Talent ACTIVE 14 ngày không có video air mới.
+   - `VIEW_ASSUMPTION_MISMATCH` — lệch >30% giữa view thật vs `avgViewsPerVideo` giả định (dùng lại
+     `src/server/insights/view-variance.ts`, cũng là logic đứng sau `scalef:compare-views`).
+   Mỗi insight tự nhúng khóa xác định (`data._key`) để lần chạy sau biết tạo mới/giữ nguyên/tự đóng
+   (`resolvedAt`) — chạy lại nhiều lần không tạo trùng, xem comment đầu file để hiểu cơ chế dedupe.
+5. **`/expenses`** (Team Tech/Team Finance, `requireSystemAdmin()`) — CRUD chi phí ADS/SẢN
+   XUẤT/LƯƠNG/KHÁC, gắn tùy chọn campaign hoặc 1 video cụ thể (dán link, server tự tìm theo
+   `videoUrl`). Không phân biệt người tạo khi sửa/xóa (đúng triết lý ngang quyền Team Tech/Finance).
+6. Biểu đồ dùng [Recharts](https://recharts.org) (`src/app/(dashboard)/_components/finance-charts.tsx`,
+   `"use client"`) — mọi tính toán/gộp số liệu làm ở server (`src/server/dashboard/`), component
+   chart chỉ nhận mảng phẳng và vẽ.
+
+⚠ **2 banner cảnh báo dữ liệu bắt buộc** (`data-quality-banners.tsx`) hiện ngay trên Tổng quan cho
+Team Tech/Team Finance, không bao giờ ẩn số 0 gây hiểu nhầm: (1) tỉ lệ `scalef_videos` đã ghép được
+Talent + số tiền/view thật chưa gắn được vào ai; (2) tỉ lệ video thiếu chi phí sản xuất, tách rõ
+"video cũ trước backfill — bình thường" khỏi "video mới vẫn thiếu — lỗ hổng nhập liệu thật".

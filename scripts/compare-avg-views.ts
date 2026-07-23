@@ -1,20 +1,12 @@
-// Đối chiếu view giả định (avgViewsPerVideo, đang dùng tính lương/thưởng MM ở Module 3) với view
-// thật lấy từ scalef_daily_stats (Module 4). CHỈ ĐỌC — không ghi reward_policies, không đụng
-// payroll. Chạy: npm run scalef:compare-views
+// In báo cáo đối chiếu view giả định (avgViewsPerVideo, đang dùng tính lương/thưởng MM ở Module 3)
+// với view thật lấy từ scalef_daily_stats (Module 4). CHỈ ĐỌC — không ghi reward_policies, không
+// đụng payroll. Chạy: npm run scalef:compare-views
 //
-// Phạm vi so sánh: video vừa "đã nộp ScaleF" (scalefSubmittedAt) VỪA "đã khớp" (có scalef_videos
-// liên kết) — so đúng tập video có cả 2 phía số liệu, không lẫn video chưa kịp khớp/chưa nộp.
+// Logic tính đã chuyển sang src/server/insights/view-variance.ts (dùng chung với rule
+// VIEW_ASSUMPTION_MISMATCH ở src/server/insights/engine.ts) — file này chỉ còn là bản in console.
 import "dotenv/config";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../src/generated/prisma/client";
-
-const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
-
-const DEFAULT_AVG_VIEWS_PER_VIDEO = 80_000;
-
-function monthOf(date: Date): string {
-  return date.toISOString().slice(0, 7);
-}
+import { prisma } from "../src/lib/prisma";
+import { computeViewVarianceGroups } from "../src/server/insights/view-variance";
 
 function fmtInt(n: number): string {
   return n.toLocaleString("vi-VN");
@@ -25,78 +17,16 @@ function pctDiff(actual: number, expected: number): string {
   return `${(((actual - expected) / expected) * 100).toFixed(1)}%`;
 }
 
-// Cùng cách chọn policy hiệu lực như computePayrollDraft (src/server/payroll/compute.ts) — bản mới
-// nhất còn hiệu lực tại đầu tháng. Không export dùng chung vì đây là script đọc riêng, tách khỏi
-// engine tính lương thật để không vô tình phụ thuộc lẫn nhau.
-async function getAvgViewsPerVideo(monthStart: Date): Promise<{ value: number; source: string }> {
-  const policy = await prisma.rewardPolicy.findFirst({
-    where: {
-      appliesTo: "MM",
-      name: "campaign_commission",
-      effectiveFrom: { lte: monthStart },
-      OR: [{ effectiveTo: null }, { effectiveTo: { gte: monthStart } }],
-    },
-    orderBy: { effectiveFrom: "desc" },
-  });
-  const params = policy?.params as { avgViewsPerVideo?: number } | undefined;
-  if (params?.avgViewsPerVideo) {
-    return {
-      value: params.avgViewsPerVideo,
-      source: `reward_policies (hiệu lực từ ${policy!.effectiveFrom.toISOString().slice(0, 10)})`,
-    };
-  }
-  return { value: DEFAULT_AVG_VIEWS_PER_VIDEO, source: "mặc định cứng — chưa có reward_policies" };
-}
-
-type Group = {
-  month: string;
-  talentId: string;
-  talentName: string;
-  videoCount: number;
-  realViews: number;
-};
-
 async function main() {
-  const videos = await prisma.video.findMany({
-    where: { scalefSubmittedAt: { not: null }, scalefVideos: { some: {} } },
-    select: {
-      id: true,
-      airDate: true,
-      talentId: true,
-      talent: { select: { fullName: true } },
-      scalefVideos: { select: { dailyStats: { orderBy: { statDate: "desc" }, take: 1 } } },
-    },
-    orderBy: { airDate: "asc" },
-  });
+  const groups = await computeViewVarianceGroups();
 
-  if (videos.length === 0) {
+  if (groups.length === 0) {
     console.log(
       "Chưa có video nào vừa 'đã nộp ScaleF' vừa 'đã khớp' scalef_videos — chạy `npm run scalef:sync` " +
         "và ghép tay ở /scalef trước khi chạy báo cáo này.",
     );
     return;
   }
-
-  const groups = new Map<string, Group>();
-  for (const v of videos) {
-    const month = monthOf(v.airDate);
-    const key = `${month}|${v.talentId}`;
-    const realViews = v.scalefVideos.reduce((sum, sv) => sum + (sv.dailyStats[0]?.views ?? 0), 0);
-    const g = groups.get(key) ?? {
-      month,
-      talentId: v.talentId,
-      talentName: v.talent.fullName,
-      videoCount: 0,
-      realViews: 0,
-    };
-    g.videoCount += 1;
-    g.realViews += realViews;
-    groups.set(key, g);
-  }
-
-  const sorted = [...groups.values()].sort(
-    (a, b) => a.month.localeCompare(b.month) || a.talentName.localeCompare(b.talentName),
-  );
 
   console.log("So sánh view giả định (đang dùng tính lương MM) vs view thật (scalef_daily_stats)\n");
   console.log(
@@ -107,21 +37,18 @@ async function main() {
   let totalAssumed = 0;
   let totalReal = 0;
   const policyNoteSeen = new Set<string>();
-  for (const g of sorted) {
-    const monthStart = new Date(`${g.month}-01T00:00:00.000Z`);
-    const { value: avg, source } = await getAvgViewsPerVideo(monthStart);
-    const assumedViews = g.videoCount * avg;
-    totalAssumed += assumedViews;
+  for (const g of groups) {
+    totalAssumed += g.assumedViews;
     totalReal += g.realViews;
 
     console.log(
-      `${g.month.padEnd(9)}${g.talentName.slice(0, 20).padEnd(22)}${String(g.videoCount).padStart(7)}${fmtInt(assumedViews).padStart(16)}${fmtInt(g.realViews).padStart(14)}${pctDiff(g.realViews, assumedViews).padStart(10)}`,
+      `${g.month.padEnd(9)}${g.talentName.slice(0, 20).padEnd(22)}${String(g.videoCount).padStart(7)}${fmtInt(g.assumedViews).padStart(16)}${fmtInt(g.realViews).padStart(14)}${pctDiff(g.realViews, g.assumedViews).padStart(10)}`,
     );
 
-    const noteKey = `${g.month}|${avg}`;
+    const noteKey = `${g.month}|${g.avgViewsPerVideo}`;
     if (!policyNoteSeen.has(noteKey)) {
       policyNoteSeen.add(noteKey);
-      console.log(`  (avgViewsPerVideo=${fmtInt(avg)} — ${source})`);
+      console.log(`  (avgViewsPerVideo=${fmtInt(g.avgViewsPerVideo)} — ${g.avgSource})`);
     }
   }
 

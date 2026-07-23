@@ -344,8 +344,46 @@ Rủi ro đã chấp nhận:
     prompt: bảng log chạy ScaleF thật là `scrape_runs` (3 dòng thật), KHÔNG phải `sync_runs` (bảng
     đó dành cho Ambassador sync chưa code, đang 0 dòng) — đã tự nhầm rồi tự phát hiện bằng cách đọc
     code + DB thật trước khi chốt, không tin suy luận suông.
-- Tiếp theo theo lộ trình: **Module 6 — Dashboard/Insight** (prompt đã cập nhật, sẵn sàng dùng).
-  2 việc bổ sung vẫn đang chờ code, không chặn Module 6, làm trước/sau tùy CFO:
+- **2026-07-23 — Rà soát code trước khi làm module mới, phát hiện PR trùng tên "module-6".**
+  Trước khi triển khai Module 6 thật, dò lại toàn bộ: DB thật khớp đúng số liệu docs đã ghi (20
+  talent/14 campaign/317 video đều `production_cost=0`/145 `scalef_videos` 0 ghép được/145
+  `scalef_daily_stats`/1 kỳ lương/3 `scrape_runs`/0 `sync_runs`), `prisma/schema.prisma` chưa có
+  `expenses`/`insights`, chưa có `recharts` — Module 6 thật chưa hề bắt đầu. Phát hiện PR #3
+  **`module-6-team-tech-finance-parity` đã merge lên GitHub** (local `main` lag phía sau, đã
+  fast-forward) — tên trùng "module-6" nhưng nội dung là việc KHÁC hẳn: cho Team Tech (TECH) và
+  Team Finance (CFO) quyền quản trị ngang nhau (`src/lib/roles.ts` mới, `requireSystemAdmin()`
+  thay hầu hết chỗ trước đây chỉ check `role === "CFO"`) — không đụng gì dashboard/insight. Theo
+  yêu cầu CFO, Module 6 thật được code **tích hợp trên nền quyền ngang nhau đó** thay vì dựng lại
+  model CFO-only cũ trong prompt gốc (chi tiết đổi thiết kế ở mục dưới).
+- **Module 6 — Dashboard + Insight: HOÀN THÀNH (2026-07-23).**
+  - **Nhóm bảng 8** (`docs/DB_SCHEMA.md`): `expenses` (category ADS/PRODUCTION/SALARY/OTHER, gắn
+    tùy chọn campaign/video), `insights` (`visibleToRoles` là mảng `Role[]` Postgres native, không
+    bảng phụ). `audit_logs` đã có sẵn từ Module 1, không migrate lại.
+  - **Quyết định đổi so với `docs/MODULE_PROMPTS.md` gốc (viết trước PR parity ở trên): gộp
+    dashboard CFO + Tech thành 1 view `AdminDashboard`** cho cả Team Tech/Team Finance (tài chính +
+    vận hành pipeline/ScaleF trong cùng 1 trang), thay vì tách CFO-only/Tech-only — nhất quán với
+    việc 2 role đã ngang quyền toàn hệ thống. `VIEW_ASSUMPTION_MISMATCH` và `SCRAPER_FAILED` cũng
+    đổi từ hiện riêng 1 role sang hiện cho cả 2 (Team Tech giờ cũng quản lý payroll nên cần thấy).
+    MM vẫn có `MmDashboard` riêng, scope đúng team mình.
+  - **Engine insight rule-based** (`src/server/insights/engine.ts`, `npm run insights:run` + nút
+    "Chạy insight ngay"): 5 rule VIDEO_LATE/VIEW_DROP/SCRAPER_FAILED/TALENT_INACTIVE/
+    VIEW_ASSUMPTION_MISMATCH — dedupe/tự đóng qua khóa `_key` nhúng trong `data` (không có cột khóa
+    tự nhiên như `scalef_key`). Verify chạy 2 lần liên tiếp trên dữ liệu thật: lần 1 tạo 59 dòng
+    (47 VIDEO_LATE, 12 TALENT_INACTIVE — VIEW_DROP/VIEW_ASSUMPTION_MISMATCH ra 0 đúng như dự đoán
+    vì đang 0/145 `scalef_videos` ghép được Talent), lần 2 tạo mới 0/đóng 0 — không tạo trùng.
+  - **2 banner cảnh báo dữ liệu bắt buộc** verify đúng số thật trên browser (CFO): "0/145 video ScaleF
+    ghép Talent — còn 144.258.926đ + 14.125.470 view chưa gắn được", "8/8 video từ 2026-07-22 vẫn
+    thiếu chi phí (lỗ hổng thật)" + "309/309 video trước đó thiếu chi phí (bình thường, chưa
+    backfill ngược) — lợi nhuận chưa đáng tin".
+  - **`/expenses`** (Team Tech/Team Finance, không phân biệt người tạo khi sửa/xóa): verify CRUD
+    đầy đủ trên browser (tạo → sửa → xóa), `audit_logs` ghi đúng 2 dòng CREATE/DELETE, MM vào thẳng
+    URL bị chặn (redirect `/`, không thấy mục nav).
+  - Biểu đồ Recharts (`recharts` thêm vào `package.json`), số liệu gộp/tính hết ở server
+    (`src/server/dashboard/finance.ts`/`team.ts`/`pipeline.ts`), component chart chỉ vẽ.
+  - `npm run build` + lint sạch (chỉ 2 warning unused-var có sẵn từ trước, không phải do module này).
+  - Chi tiết đầy đủ: `README.md` mục "Dashboard + Insight (module 6)".
+- Tiếp theo theo lộ trình: 2 việc bổ sung vẫn đang chờ code (không phụ thuộc Module 6), làm
+  trước/sau tùy CFO:
   - "Bổ sung Module 2 — Đồng bộ Ambassador" (thiết kế xong) — tham khảo `src/server/scalef/` (đã
     code, đã verify thật) làm khuôn mẫu, cùng dạng bài (gọi API ngoài, validate zod, advisory
     lock, bảng log).

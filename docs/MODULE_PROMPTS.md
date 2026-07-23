@@ -362,7 +362,12 @@ Triển khai Module 5 — Dealverse affiliate link cho eps-platform:
   cập nhật docs/PROJECT_EPS.md + README.
 ```
 
-## Module 6 — Dashboard thông minh + Insight theo role
+## Module 6 — Dashboard thông minh + Insight theo role (✅ đã code)
+
+> **Đổi thiết kế so với prompt gốc dưới đây** (viết trước khi PR "module-6-team-tech-finance-parity"
+> merge cho Team Tech/Team Finance quyền ngang nhau): dashboard CFO/Tech đã GỘP thành 1 view
+> `AdminDashboard` chung cho cả 2 role, thay vì tách riêng như mô tả bên dưới. Chi tiết:
+> `docs/PROJECT_EPS.md` mục Module 6 + `README.md` mục "Dashboard + Insight (module 6)".
 
 ```
 Đọc docs/PROJECT_EPS.md, docs/DB_SCHEMA.md (nhóm 8), docs/PAYROLL_FORMULA.md và

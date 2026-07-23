@@ -86,6 +86,27 @@ export const SCRAPE_RUN_STATUS_LABELS: Record<string, string> = {
   FAILED: "Lỗi",
 };
 
+export const EXPENSE_CATEGORY_LABELS: Record<string, string> = {
+  ADS: "Ads",
+  PRODUCTION: "Sản xuất",
+  SALARY: "Lương",
+  OTHER: "Khác",
+};
+
+export const INSIGHT_SEVERITY_LABELS: Record<string, string> = {
+  INFO: "Thông tin",
+  WARNING: "Cảnh báo",
+  CRITICAL: "Nghiêm trọng",
+};
+
+export const INSIGHT_TYPE_LABELS: Record<string, string> = {
+  VIDEO_LATE: "Video chậm tiến độ",
+  VIEW_DROP: "View sụt giảm",
+  SCRAPER_FAILED: "Đồng bộ ScaleF lỗi",
+  TALENT_INACTIVE: "Talent không hoạt động",
+  VIEW_ASSUMPTION_MISMATCH: "Lệch view giả định vs thật",
+};
+
 export function formatVnd(amount: number): string {
   return new Intl.NumberFormat("vi-VN").format(amount) + " đ";
 }

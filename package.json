@@ -14,7 +14,8 @@
     "db:import-videos": "tsx scripts/import-videos.ts",
     "payroll:reconcile": "tsx scripts/reconcile-payroll.ts",
     "scalef:sync": "tsx scripts/sync-scalef.ts",
-    "scalef:compare-views": "tsx scripts/compare-avg-views.ts"
+    "scalef:compare-views": "tsx scripts/compare-avg-views.ts",
+    "insights:run": "tsx scripts/run-insights.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.0",
@@ -31,6 +32,7 @@
     "radix-ui": "^1.6.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "recharts": "^3.10.0",
     "shadcn": "^4.13.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
