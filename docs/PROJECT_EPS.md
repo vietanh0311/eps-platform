@@ -382,6 +382,14 @@ Rủi ro đã chấp nhận:
     (`src/server/dashboard/finance.ts`/`team.ts`/`pipeline.ts`), component chart chỉ vẽ.
   - `npm run build` + lint sạch (chỉ 2 warning unused-var có sẵn từ trước, không phải do module này).
   - Chi tiết đầy đủ: `README.md` mục "Dashboard + Insight (module 6)".
+- **2026-07-23 — Fix: `.env.example` thiếu trong repo (đã xong).** CFO phát hiện README dặn
+  "copy .env.example → .env" nhưng file chưa từng lên GitHub — người mới clone kẹt ngay bước cài
+  đặt. Nguyên nhân gốc: `.gitignore` có rule chung `.env*` (dòng "env files") vô tình chặn luôn
+  `.env.example`, dù file này không chứa bí mật thật. File `.env.example` trên máy đã có sẵn nội
+  dung đúng (đối chiếu với toàn bộ `process.env.*` thật dùng trong `src/`+`scripts/`+`prisma/`:
+  `DATABASE_URL`, `AUTH_SECRET`, `SCALEF_ADMIN_EMAIL/PASSWORD/BASE_URL` — đủ 5/5, không thiếu,
+  không có giá trị thật). Sửa bằng cách thêm `!.env.example` ngay sau rule `.env*` trong
+  `.gitignore`, commit + push riêng (không gộp việc khác). `npm run build` sạch sau khi sửa.
 - Tiếp theo theo lộ trình: 2 việc bổ sung vẫn đang chờ code (không phụ thuộc Module 6), làm
   trước/sau tùy CFO:
   - "Bổ sung Module 2 — Đồng bộ Ambassador" (thiết kế xong) — tham khảo `src/server/scalef/` (đã
