@@ -48,11 +48,13 @@ export default async function TalentDetailPage({
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { clicks: true } } },
   });
+  // Chỉ hiện MM đang hoạt động để chọn — nhưng vẫn giữ đúng MM hiện tại của Talent trong danh
+  // sách dù MM đó đã bị khóa, để không hiện dropdown trống/sai giá trị đang chọn.
   const managers =
     user.role === "MM"
       ? [{ id: user.id, fullName: user.name }]
       : await prisma.user.findMany({
-          where: { role: "MM" },
+          where: { role: "MM", OR: [{ status: "ACTIVE" }, { id: talent.managerId }] },
           select: { id: true, fullName: true },
           orderBy: { fullName: "asc" },
         });
