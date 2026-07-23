@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { payrollItemScopeWhere, requireUser } from "@/lib/authz";
+import { isSystemAdmin } from "@/lib/roles";
 import { approvePeriod, markPeriodPaid } from "@/server/actions/payroll";
 import { PAYROLL_PERIOD_STATUS_LABELS, formatVnd } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
@@ -206,7 +207,7 @@ export default async function PayrollPeriodDetailPage({
         </div>
       ) : null}
 
-      {user.role === "CFO" ? (
+      {isSystemAdmin(user.role) ? (
         <div className="flex items-center gap-3">
           {period.status === "DRAFT" ? (
             <form action={approvePeriod.bind(null, period.id)}>
@@ -226,7 +227,7 @@ export default async function PayrollPeriodDetailPage({
         </div>
       ) : null}
 
-      {user.role === "CFO" ? (
+      {isSystemAdmin(user.role) ? (
         <p className="text-sm text-muted-foreground">
           Tổng toàn kỳ: <span className="font-medium text-foreground">{formatVnd(grandTotal)}</span> ({period.items.length} dòng)
         </p>

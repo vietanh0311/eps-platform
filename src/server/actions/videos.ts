@@ -49,7 +49,7 @@ const createVideosSchema = z.object({
 });
 
 export async function createVideos(formData: FormData) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const parsed = createVideosSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
     redirect(
@@ -131,7 +131,7 @@ const updateVideoSchema = z.object({
 });
 
 export async function updateVideo(videoId: string, formData: FormData) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const video = await loadVideoForAction(videoId);
   if (!video) redirect("/videos");
   if (!canReviewVideo(user, video.talent.managerId)) redirect("/videos");
@@ -168,7 +168,7 @@ export async function updateVideo(videoId: string, formData: FormData) {
 }
 
 export async function deleteVideo(videoId: string) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const video = await loadVideoForAction(videoId);
   if (!video) redirect("/videos");
   if (!canReviewVideo(user, video.talent.managerId)) redirect("/videos");
@@ -319,7 +319,7 @@ export async function undoSubmitToScalef(videoId: string) {
 }
 
 export async function confirmScalefSubmission(videoId: string) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const video = await loadVideoForAction(videoId);
   if (!video) redirect("/videos");
   if (!canConfirmScalef(user, video.talent.managerId)) redirect("/videos");
@@ -348,7 +348,7 @@ export async function confirmScalefSubmission(videoId: string) {
 }
 
 export async function undoConfirmScalef(videoId: string) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const video = await loadVideoForAction(videoId);
   if (!video) redirect("/videos");
   if (!canConfirmScalef(user, video.talent.managerId)) redirect("/videos");

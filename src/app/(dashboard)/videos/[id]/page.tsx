@@ -214,7 +214,7 @@ export default async function VideoDetailPage({
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Chỉ team Tech (và CFO) cập nhật được pipeline.
+            Chỉ Team Tech / Team Finance cập nhật được pipeline.
           </p>
         )}
 

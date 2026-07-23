@@ -11,7 +11,7 @@ export default async function NewVideoPage({
 }: {
   searchParams: Promise<{ error?: string; talent?: string; campaign?: string }>;
 }) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const { error, talent: presetTalent, campaign: presetCampaign } = await searchParams;
 
   // MM chỉ log được cho Talent mình quản lý.

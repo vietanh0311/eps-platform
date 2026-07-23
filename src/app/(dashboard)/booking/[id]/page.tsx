@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/authz";
+import { requireSystemAdmin } from "@/lib/authz";
 import { updateBookingDeal } from "@/server/actions/payroll";
 import { BookingDealForm } from "@/components/booking-deal-form";
 
@@ -11,8 +11,8 @@ export default async function EditBookingDealPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ error?: string }>;
 }) {
-  // Sửa deal là quyết định tài chính — chỉ CFO, giống các action payroll khác.
-  await requireRole("CFO");
+  // Sửa deal là quyết định tài chính — system admin (Team Tech/Team Finance), giống các action payroll khác.
+  await requireSystemAdmin();
   const { id } = await params;
   const { error } = await searchParams;
 

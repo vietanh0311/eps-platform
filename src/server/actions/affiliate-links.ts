@@ -9,9 +9,9 @@ import { canEditTalent, requireRole } from "@/lib/authz";
 import { ensureAffiliateLink } from "@/server/affiliate/links";
 
 // Nút "Tạo link affiliate" trên trang chi tiết Talent — idempotent (ensureAffiliateLink), quyền
-// giống mọi thao tác khác trên hồ sơ Talent (CFO toàn quyền, MM chỉ Talent của mình).
+// giống mọi thao tác khác trên hồ sơ Talent (system admin toàn quyền, MM chỉ Talent của mình).
 export async function createAffiliateLinkForTalent(talentId: string) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const talent = await prisma.talent.findUnique({ where: { id: talentId } });
   if (!talent || !canEditTalent(user, talent.managerId)) redirect("/talents");
 
@@ -29,7 +29,7 @@ export async function createAffiliateLinkForTalent(talentId: string) {
 // Bật/tắt link — tắt nghĩa là tắt hẳn: /go/<slug> trả 404, không redirect, không ghi click nữa
 // (xem src/app/go/[slug]/route.ts).
 export async function toggleAffiliateLink(linkId: string) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const link = await prisma.affiliateLink.findUnique({
     where: { id: linkId },
     include: { talent: true },
@@ -54,10 +54,10 @@ const targetUrlSchema = z.object({
   targetUrl: z.string().trim().url("URL đích không hợp lệ"),
 });
 
-// Sửa target_url — mặc định là trang chủ Dealverse lúc tạo, CFO/MM đổi sau nếu muốn trỏ trang cụ
-// thể hơn (VD 1 deal riêng) mà không cần mở Prisma Studio.
+// Sửa target_url — mặc định là trang chủ Dealverse lúc tạo, system admin/MM đổi sau nếu muốn trỏ
+// trang cụ thể hơn (VD 1 deal riêng) mà không cần mở Prisma Studio.
 export async function updateAffiliateLinkTarget(linkId: string, formData: FormData) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const link = await prisma.affiliateLink.findUnique({
     where: { id: linkId },
     include: { talent: true },

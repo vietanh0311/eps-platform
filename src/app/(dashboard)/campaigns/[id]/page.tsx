@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { campaignScopeWhere, canEditCampaign, requireUser, talentScopeWhere } from "@/lib/authz";
+import { isSystemAdmin } from "@/lib/roles";
 import { assignTalent, removeAssignment, updateAssignmentStatus, updateCampaign } from "@/server/actions/campaigns";
 import { upsertCampaignRewardTerms } from "@/server/actions/payroll";
 import { CampaignForm } from "@/components/campaign-form";
@@ -140,7 +141,7 @@ export default async function CampaignDetailPage({
         </dl>
       )}
 
-      {user.role === "CFO" ? (
+      {isSystemAdmin(user.role) ? (
         <>
           <Separator />
           <section className="space-y-3">

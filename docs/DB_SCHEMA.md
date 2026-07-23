@@ -35,7 +35,7 @@ Tất cả ──→ Dashboard + Insight theo role
 | email | text, unique | dùng đăng nhập |
 | password_hash | text | Auth.js Credentials |
 | full_name | text | |
-| role | enum `CFO \| MM \| TALENT \| TECH` | phân quyền toàn hệ thống |
+| role | enum `CFO \| MM \| TALENT \| TECH` | phân quyền toàn hệ thống — tên hiển thị: `CFO` → "Team Finance", `TECH` → "Team Tech" (2 role này là system admin, quyền ngang nhau); `MM` scope theo Talent được giao. Xem `src/lib/roles.ts` |
 | status | enum `ACTIVE \| DISABLED` | khóa tài khoản không xóa dữ liệu |
 
 ## Nhóm 2 — Talent

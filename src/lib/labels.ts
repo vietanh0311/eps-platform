@@ -13,10 +13,13 @@ export const PLATFORM_LABELS: Record<string, string> = {
   OTHER: "Khác",
 };
 
+// CFO/TECH là giá trị enum DB giữ nguyên để tránh migration rủi ro — tên hiển thị trên toàn hệ
+// thống là "Team Finance"/"Team Tech". Hai role này là system admin, quyền ngang nhau
+// (xem isSystemAdmin ở lib/roles.ts); MM vẫn là role có scope theo Talent được giao.
 export const ROLE_LABELS: Record<string, string> = {
-  CFO: "CFO/COO",
+  CFO: "Team Finance",
   MM: "Media Manager",
-  TECH: "Team công nghệ",
+  TECH: "Team Tech",
   TALENT: "Talent",
 };
 
