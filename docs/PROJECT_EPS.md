@@ -315,10 +315,41 @@ Rủi ro đã chấp nhận:
     Giang tạo link cho Talent của mình ("Chi") thành công, không mở được trang Talent MM khác quản
     lý (404, đúng `talentScopeWhere` cũ). `npm run build` sạch, không lỗi server trong suốt quá
     trình verify.
-- Tiếp theo theo lộ trình: **Module 6 — Dashboard/Insight**.
-  "Bổ sung Module 2 — Đồng bộ Ambassador" (thiết kế xong, chưa code) vẫn có thể làm bất kỳ lúc nào,
-  không chặn Module 6 — nên tham khảo `src/server/scalef/` (đã code, đã verify thật) làm khuôn
-  mẫu khi code phần đó, vì cùng dạng bài (gọi API ngoài, validate zod, advisory lock, bảng log).
+- **2026-07-23 — Rà soát toàn bộ + vá lỗ hổng GitHub.** CFO yêu cầu rà lại trạng thái thật (không
+  chỉ tin docs) và đảm bảo repo GitHub đủ để người mới join làm việc được. Phát hiện + đã xử lý:
+  - **`docs/` (PROJECT_EPS.md, DB_SCHEMA.md, MODULE_PROMPTS.md) chưa từng nằm trong repo git** —
+    toàn bộ tài liệu nghiệp vụ/schema/lịch sử quyết định chỉ tồn tại ở `~/Claude/docs/` (ngoài repo
+    eps-platform). Đã tạo `eps-platform/docs/` chứa bản sao 3 file này + `PAYROLL_FORMULA.md` (bản
+    công khai công thức lương, đã lọc bỏ số liệu tài chính thật — bản đầy đủ vẫn ở
+    `data/co-che-luong-thuong-mm.md` trên máy CFO, gitignored). Sửa 2 đường dẫn hỏng trong README
+    (`../docs/*` trỏ ra ngoài repo, `data/co-che-luong-thuong-mm.md` bị gitignore) + thêm mục "Mới
+    join dự án? Đọc theo thứ tự này". Các bản sao có ghi chú rõ bản gốc chỉnh ở đâu, tránh nhầm lẫn
+    sau này — nhớ đồng bộ lại thủ công khi có cập nhật lớn (`cp` xong phải tự thêm lại ghi chú
+    "Bản sao cho GitHub" vì `cp` thô sẽ ghi đè mất, đã bị 1 lần khi làm việc này).
+  - **Nhánh git bị phân mảnh**: code đang nằm rải trên nhánh `module-4-scalef-sync` (đã merge vào
+    `main` qua PR #1, #2 trên GitHub) — nhánh local `main` của máy làm việc bị lag phía sau. Đã
+    `git pull` đồng bộ, merge nốt commit mới (docs + backfill) vào `main`, xóa nhánh
+    `module-4-scalef-sync` (cả local lẫn remote) sau khi xác nhận đã merge hết. Giờ GitHub chỉ còn
+    đúng 1 nhánh `main`, đầy đủ Module 1-5.
+  - **Backfill `Talent.productionFeePerVideo`** bằng số thật từ 2 file report CFO gửi (đã làm ở
+    phiên trước, xem mục Module 3) — giờ đã commit + push (trước đó chỉ có ở local, chưa lên
+    GitHub). Sửa kèm 1 lỗi nhỏ: dropdown chọn MM ở màn sửa Talent không lọc MM đã khóa.
+  - Đã khóa (`DISABLED`) tài khoản MM Đức + MM Nga (đã nghỉ công ty, CFO xác nhận 2026-07-22),
+    kèm audit_logs. Talent "Phanh Têy" giữ nguyên ACTIVE theo yêu cầu CFO dù không còn sản xuất.
+  - Verify lại toàn bộ: `npx prisma migrate status` sạch (8 migration), `npm run build` qua,
+    working tree sạch, đã push.
+  - **Cập nhật prompt Module 6** với dữ liệu thật mới nhất (2026-07-23): `scalef_daily_stats` đã
+    có 145 dòng thật (~14.1 triệu view, ~144 triệu đồng thưởng) nhưng 0/145 ghép được Talent —
+    dashboard phải cảnh báo rõ thay vì hiện số 0 gây hiểu nhầm. Sửa 1 lỗi trong bản nháp trước của
+    prompt: bảng log chạy ScaleF thật là `scrape_runs` (3 dòng thật), KHÔNG phải `sync_runs` (bảng
+    đó dành cho Ambassador sync chưa code, đang 0 dòng) — đã tự nhầm rồi tự phát hiện bằng cách đọc
+    code + DB thật trước khi chốt, không tin suy luận suông.
+- Tiếp theo theo lộ trình: **Module 6 — Dashboard/Insight** (prompt đã cập nhật, sẵn sàng dùng).
+  2 việc bổ sung vẫn đang chờ code, không chặn Module 6, làm trước/sau tùy CFO:
+  - "Bổ sung Module 2 — Đồng bộ Ambassador" (thiết kế xong) — tham khảo `src/server/scalef/` (đã
+    code, đã verify thật) làm khuôn mẫu, cùng dạng bài (gọi API ngoài, validate zod, advisory
+    lock, bảng log).
+  - "Bổ sung Module 2/3 — Chi phí video" (bắt buộc điền/filter/điền nhanh/khóa sau chốt lương).
 - Bộ prompt sẵn cho từng module (CFO copy vào chat mới, mỗi module 1 chat): `docs/MODULE_PROMPTS.md`.
 - File gốc `PROJECT_EPS.txt` (bị lỗi encoding) đã được thay bằng file này; có thể xóa file cũ.
 

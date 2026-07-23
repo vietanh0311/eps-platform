@@ -365,42 +365,61 @@ Triển khai Module 5 — Dealverse affiliate link cho eps-platform:
 ## Module 6 — Dashboard thông minh + Insight theo role
 
 ```
-Đọc docs/PROJECT_EPS.md, docs/DB_SCHEMA.md (nhóm 8) và eps-platform/README.md trước khi làm gì.
-Đọc code thật: eps-platform/prisma/schema.prisma (model ScalefVideo — CHÚ Ý: không có cột
-talentId trực tiếp, chỉ nối được tới Talent QUA videoId khi đã ghép tay ở /scalef).
+Đọc docs/PROJECT_EPS.md, docs/DB_SCHEMA.md (nhóm 8), docs/PAYROLL_FORMULA.md và
+eps-platform/README.md trước khi làm gì. Đọc code thật: eps-platform/prisma/schema.prisma (model
+ScalefVideo — CHÚ Ý: không có cột talentId trực tiếp, chỉ nối được tới Talent QUA videoId khi đã
+ghép tay ở /scalef).
 
-Bối cảnh dữ liệu thật đã xác nhận (2026-07-22, không phải giả định):
-- `scalef_videos`: 145 dòng, NHƯNG 0/145 đã ghép được video_id (chưa ai làm ở /scalef) — nghĩa
-  là KHÔNG có cách nào tính "doanh thu/view thật theo Talent hay theo campaign" lúc này, vì
-  ScalefVideo chỉ nối được sang Talent thông qua Video.talentId sau khi ghép tay. Dashboard PHẢI
-  hiện rõ trạng thái này (VD "Chưa ghép được dữ liệu ScaleF cho Talent nào — vào /scalef để ghép
-  tay") thay vì im lặng hiện số 0 hoặc bỏ qua — đừng để CFO tưởng nhầm doanh thu ScaleF = 0 thật.
-- `videos.production_cost` = 0 cho TOÀN BỘ 317 video hiện có (talents.production_fee_per_video
-  cũng = 0 cho cả 20 Talent — chưa backfill từ Excel thật). Mọi số "lợi nhuận" tính từ dữ liệu
-  hiện tại sẽ SAI (chi phí giả định = 0). Dashboard phải hiện cảnh báo rõ ràng ở phần lợi
-  nhuận/chi phí (banner hoặc badge, không chỉ ẩn trong tooltip) khi phát hiện phần lớn video có
-  production_cost = 0, đừng vẽ biểu đồ "lợi nhuận" đẹp mà thật ra vô nghĩa. Cân nhắc hỏi tôi
-  trước: có nên backfill production_fee_per_video từ data/Hồ sơ Talent.xlsx TRƯỚC khi làm dashboard
-  không (số liệu profit sẽ vô nghĩa cho tới khi backfill xong)?
-- Payroll (Module 3) đã có dữ liệu thật để tham khảo cho phần "chi phí lương" (1 kỳ lương,
-  payroll_items) — dùng số đã tính sẵn đó thay vì tính lại công thức lương trong Module 6.
-- Đã có sẵn màn "/scalef" (log đồng bộ + ghép tay) và authz helpers dạng *ScopeWhere/can* —
+Bối cảnh dữ liệu thật đã xác nhận (2026-07-23, không phải giả định — re-verify lại bằng SQL trước
+khi tin, vì các con số này đổi liên tục):
+- `scalef_daily_stats` đã có dữ liệu ScaleF THẬT: 145 dòng, tổng ~14.1 triệu view, ~144 triệu đồng
+  tiền thưởng — nhưng `scalef_videos` vẫn 0/145 ghép được video_id (chưa ai làm ở /scalef từ lúc
+  đồng bộ tới giờ). Nghĩa là: có tiền thật, có view thật, nhưng KHÔNG map được về Talent/campaign
+  nào cả cho tới khi ai đó vào /scalef ghép tay. Dashboard PHẢI hiện rõ trạng thái này (banner "Có
+  144 triệu đồng thưởng ScaleF thật nhưng chưa ghép được Talent nào — vào /scalef để ghép tay",
+  không phải ẩn đi hay hiện số 0 khiến CFO tưởng ScaleF chưa có gì). Cân nhắc nhắc tôi đi ghép tay
+  trước khi dashboard này có ý nghĩa thật.
+- `Talent.productionFeePerVideo` ĐÃ backfill số thật (2026-07-22,
+  scripts/backfill-production-fees.ts) — nhưng đây chỉ là giá trị MẶC ĐỊNH cho video mới/được sửa
+  sau đó. 317 video lịch sử đã import TỪ TRƯỚC khi backfill vẫn có `production_cost = 0` (đã tự
+  verify bằng SQL, chưa tự cập nhật ngược). Dashboard vẫn cần cảnh báo khi phần lớn video trong
+  khoảng đang xem có production_cost = 0 — đừng vẽ "lợi nhuận" như thể số đó đáng tin, nhưng câu
+  chữ cảnh báo nên phản ánh đúng: "chi phí sản xuất của video cũ (trước 2026-07-22) chưa có", không
+  phải "chưa backfill gì cả" (đã backfill Talent-level, chỉ video cũ chưa cập nhật ngược).
+- Có prompt "Bổ sung Module 2/3 — Chi phí video" (mục trên MODULE_PROMPTS.md, CHƯA code) sẽ thêm
+  filter + điền nhanh cho đúng vấn đề "video thiếu chi phí" này — nếu prompt đó đã chạy trước khi
+  tới module 6, tái dùng filter/UI đã có thay vì viết lại; nếu chưa, Module 6 KHÔNG cần chờ, chỉ
+  cần cảnh báo đúng như trên.
+- Payroll (Module 3) đã có dữ liệu thật (1 kỳ lương, payroll_items) — dùng số đã tính sẵn đó cho
+  phần "chi phí lương" thay vì tính lại công thức trong Module 6.
+- scripts/compare-avg-views.ts đã có sẵn — báo cáo chỉ đọc so avgViewsPerVideo giả định (80,000,
+  đang dùng trong công thức lương) với view thật trong scalef_daily_stats. Tham khảo cách nó tính
+  để làm insight "chênh lệch view giả định vs thật" nếu phù hợp, đừng viết lại từ đầu.
+- Đã có sẵn màn `/scalef` (log đồng bộ + ghép tay) và authz helpers dạng `*ScopeWhere`/`can*` —
   tái dùng, đừng viết lại phân quyền hay dựng lại màn log đồng bộ.
+- 2 việc khác vẫn đang chờ code (không phụ thuộc Module 6, có thể làm trước/sau tùy CFO): "Bổ
+  sung Module 2 — Đồng bộ Campaign từ Ambassador" và "Bổ sung Module 2/3 — Chi phí video" (đều ở
+  trên MODULE_PROMPTS.md).
 
 Triển khai Module 6 — Dashboard + insight tự động cho eps-platform:
-- Migrate phần còn lại nhóm bảng 8 theo DB_SCHEMA.md: expenses, insights (audit_logs đã có
-  từ module 1).
+- Migrate phần còn lại nhóm bảng 8 theo DB_SCHEMA.md: expenses, insights (audit_logs đã có sẵn
+  từ module 1 — kiểm tra bằng `\dt` trong psql trước khi migrate, đừng tạo trùng nếu ai đó đã làm).
 - Dashboard theo role bằng Recharts:
-  - CFO/COO: doanh thu (contract_value campaign + ScaleF thật CHỈ khi đã ghép được, ghi rõ % đã
-    ghép), chi phí (production_cost + expenses ads/lương + payroll_items), lợi nhuận (kèm cảnh
-    báo độ tin cậy nếu production_cost phần lớn = 0), tăng trưởng theo tháng, top Talent/campaign.
+  - CFO/COO: doanh thu (contract_value campaign + ScaleF thật CHỈ khi đã ghép được, ghi rõ %
+    scalef_videos đã ghép/tổng), chi phí (production_cost + expenses ads/lương + payroll_items),
+    lợi nhuận (kèm cảnh báo độ tin cậy nếu production_cost phần lớn = 0), tăng trưởng theo tháng,
+    top Talent/campaign.
   - MM: hiệu suất team mình, video chậm tiến độ (tính từ video_pipeline_events).
   - Tech: trạng thái pipeline, tình trạng đồng bộ ScaleF (link/nhúng từ /scalef có sẵn, không
-    làm trùng).
+    làm trùng), số scalef_videos chưa ghép (thúc đẩy ghép tay).
 - Insight rule-based chạy định kỳ, ghi vào bảng insights, lọc hiển thị theo role. Ngưỡng đề
-  xuất (tôi sẽ chỉnh khi duyệt plan): video quá 48h chưa qua bước pipeline tiếp theo; view
-  giảm >30% so với trung bình 7 ngày (CHỈ tính được cho video đã ghép ScaleF); đồng bộ ScaleF
-  fail (đọc scrape_runs có sẵn); Talent 14 ngày không có video mới.
+  xuất (tôi sẽ chỉnh khi duyệt plan): video quá 48h chưa qua bước pipeline tiếp theo; view giảm
+  >30% so với trung bình 7 ngày (CHỈ tính được cho video đã ghép ScaleF); đồng bộ ScaleF fail (đọc
+  bảng `scrape_runs`/model `ScrapeRun` — ĐÃ verify bằng code thật + DB thật 2026-07-23: đây là
+  bảng Module 4 thực sự ghi log mỗi lần sync, có 3 dòng thật. Có 1 bảng KHÁC tên gần giống,
+  `sync_runs`/model `SyncRun`, đã tạo sẵn trong schema cho module Ambassador sync (chưa code, còn
+  0 dòng) — ĐỪNG nhầm 2 bảng này, đọc đúng `scrape_runs` cho insight ScaleF); Talent 14 ngày không
+  có video mới; số dư lớn giữa view thật vs avgViewsPerVideo giả định (dùng compare-avg-views.ts).
 - Form nhập expenses cho Tech/CFO (chi phí ads gắn campaign/video).
 - Vào Plan Mode trình kế hoạch chờ tôi duyệt mới code. Xong verify browser cả 3 role,
   npm run build, cập nhật docs/PROJECT_EPS.md + README.
