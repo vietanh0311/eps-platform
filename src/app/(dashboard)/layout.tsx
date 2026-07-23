@@ -1,32 +1,31 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/authz";
+import { isSystemAdmin } from "@/lib/roles";
 import { logoutAction } from "@/server/actions/session";
+import { ROLE_LABELS } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import type { Role } from "@/generated/prisma/enums";
 
-const ROLE_LABELS: Record<string, string> = {
-  CFO: "CFO/COO",
-  MM: "Media Manager",
-  TECH: "Team công nghệ",
-  TALENT: "Talent",
-};
-
-// Menu điều hướng — các module sau sẽ thêm mục tại đây kèm điều kiện role.
-function navItems(role: string) {
+// Menu điều hướng — Team Tech và Team Finance (system admin) thấy quyền ngang nhau; các module
+// sau sẽ thêm mục tại đây kèm điều kiện role.
+function navItems(role: Role) {
   const items = [
     { href: "/", label: "Tổng quan" },
     { href: "/talents", label: "Talent" },
     { href: "/campaigns", label: "Campaign" },
     { href: "/videos", label: "Log video" },
   ];
-  if (role === "CFO" || role === "MM") {
+  if (isSystemAdmin(role) || role === "MM") {
     items.push({ href: "/payroll", label: "Lương & thưởng" });
     items.push({ href: "/booking", label: "Booking" });
     items.push({ href: "/affiliate", label: "Aff link Dealverse" });
   }
-  if (role === "TECH" || role === "CFO") items.push({ href: "/scalef", label: "Đồng bộ ScaleF" });
-  if (role === "CFO") items.push({ href: "/admin/users", label: "Tài khoản" });
+  if (isSystemAdmin(role)) {
+    items.push({ href: "/scalef", label: "Đồng bộ ScaleF" });
+    items.push({ href: "/admin/users", label: "Tài khoản" });
+  }
   return items;
 }
 

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/authz";
+import { requireSystemAdmin } from "@/lib/authz";
 import { createUser, resetUserPassword, setUserStatus } from "@/server/actions/users";
 import { ROLE_LABELS, USER_STATUS_LABELS } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +21,7 @@ export default async function AdminUsersPage({
 }: {
   searchParams: Promise<{ error?: string; saved?: string }>;
 }) {
-  const admin = await requireRole("CFO");
+  const admin = await requireSystemAdmin();
   const { error, saved } = await searchParams;
 
   const users = await prisma.user.findMany({ orderBy: [{ role: "asc" }, { fullName: "asc" }] });
@@ -31,8 +31,8 @@ export default async function AdminUsersPage({
       <div>
         <h1 className="text-2xl font-semibold">Tài khoản</h1>
         <p className="text-sm text-muted-foreground">
-          Chỉ CFO/COO truy cập được trang này. Tài khoản bị khóa sẽ không đăng nhập được nhưng dữ
-          liệu liên quan vẫn giữ nguyên.
+          Chỉ Team Tech / Team Finance truy cập được trang này. Tài khoản bị khóa sẽ không đăng
+          nhập được nhưng dữ liệu liên quan vẫn giữ nguyên.
         </p>
       </div>
 
@@ -129,8 +129,8 @@ export default async function AdminUsersPage({
         <CardHeader>
           <CardTitle>Tạo tài khoản mới</CardTitle>
           <CardDescription>
-            Dành cho MM và Team công nghệ. Gửi mật khẩu cho người dùng qua kênh riêng, yêu cầu họ
-            đổi sau lần đăng nhập đầu.
+            Dành cho MM, Team Tech và Team Finance. Gửi mật khẩu cho người dùng qua kênh riêng,
+            yêu cầu họ đổi sau lần đăng nhập đầu.
           </CardDescription>
         </CardHeader>
         <CardContent>

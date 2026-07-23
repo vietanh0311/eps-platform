@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
+import { isSystemAdmin } from "@/lib/roles";
 import { markBookingDealPaid } from "@/server/actions/payroll";
 import { PAYMENT_STATUS_LABELS, formatVnd } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +25,7 @@ export default async function BookingPage({
   const { error } = await searchParams;
 
   const where: Prisma.BookingDealWhereInput =
-    user.role === "CFO" ? {} : user.role === "MM" ? { OR: [{ mmId: user.id }, { sellerId: user.id }] } : { id: "__none__" };
+    isSystemAdmin(user.role) ? {} : user.role === "MM" ? { OR: [{ mmId: user.id }, { sellerId: user.id }] } : { id: "__none__" };
 
   const deals = await prisma.bookingDeal.findMany({
     where,
@@ -41,7 +42,7 @@ export default async function BookingPage({
             Deal booking — chia mẫu 25% / MM 25% / công ty 25% / người bán deal 25%.
           </p>
         </div>
-        {user.role === "CFO" ? (
+        {isSystemAdmin(user.role) ? (
           <Button asChild>
             <Link href="/booking/new">+ Tạo deal</Link>
           </Button>
@@ -63,13 +64,13 @@ export default async function BookingPage({
               <TableHead>Người bán deal</TableHead>
               <TableHead className="text-right">Giá trị deal</TableHead>
               <TableHead>Thanh toán</TableHead>
-              {user.role === "CFO" ? <TableHead /> : null}
+              {isSystemAdmin(user.role) ? <TableHead /> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
             {deals.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={user.role === "CFO" ? 8 : 7} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={isSystemAdmin(user.role) ? 8 : 7} className="py-8 text-center text-muted-foreground">
                   Chưa có deal nào
                 </TableCell>
               </TableRow>
@@ -78,7 +79,7 @@ export default async function BookingPage({
                 <TableRow key={d.id}>
                   <TableCell className="text-sm">{d.dealMonth}</TableCell>
                   <TableCell>
-                    {user.role === "CFO" ? (
+                    {isSystemAdmin(user.role) ? (
                       <Link href={`/booking/${d.id}`} className="font-medium hover:underline">
                         {d.brandName}
                       </Link>
@@ -95,7 +96,7 @@ export default async function BookingPage({
                       {PAYMENT_STATUS_LABELS[d.paymentStatus]}
                     </Badge>
                   </TableCell>
-                  {user.role === "CFO" ? (
+                  {isSystemAdmin(user.role) ? (
                     <TableCell className="text-right">
                       {d.paymentStatus === "PENDING" ? (
                         <form action={markBookingDealPaid.bind(null, d.id)}>

@@ -7,6 +7,7 @@ import {
   videoScopeWhere,
   type SessionUser,
 } from "@/lib/authz";
+import { isSystemAdmin } from "@/lib/roles";
 import {
   confirmScalefSubmission,
   submitToScalef,
@@ -114,7 +115,7 @@ export default async function VideosPage({
       prisma.video.count({ where: { ...scope, ...SCALEF_FILTERS.awaiting } }),
     ]);
 
-  const canLog = user.role === "CFO" || user.role === "MM";
+  const canLog = isSystemAdmin(user.role) || user.role === "MM";
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   // Giữ nguyên bộ lọc hiện tại khi bấm sang trang khác.
@@ -133,11 +134,7 @@ export default async function VideosPage({
         <div>
           <h1 className="text-2xl font-semibold">Log video</h1>
           <p className="text-sm text-muted-foreground">
-            {user.role === "MM"
-              ? "Video của Talent bạn quản lý"
-              : user.role === "TECH"
-                ? "Toàn bộ video — bạn cập nhật pipeline và nộp ScaleF"
-                : "Toàn bộ video trong hệ thống"}
+            {user.role === "MM" ? "Video của Talent bạn quản lý" : "Toàn bộ video trong hệ thống"}
           </p>
         </div>
         {canLog ? (

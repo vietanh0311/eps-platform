@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { payrollPeriodScopeWhere, requireUser } from "@/lib/authz";
+import { isSystemAdmin } from "@/lib/roles";
 import { createOrRecomputeDraft } from "@/server/actions/payroll";
 import { PAYROLL_PERIOD_STATUS_LABELS, formatVnd } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
@@ -38,7 +39,7 @@ export default async function PayrollPage({
       <div>
         <h1 className="text-2xl font-semibold">Lương & thưởng</h1>
         <p className="text-sm text-muted-foreground">
-          {user.role === "CFO" ? "Toàn bộ kỳ lương trong hệ thống" : "Kỳ lương có phần của bạn"}
+          {isSystemAdmin(user.role) ? "Toàn bộ kỳ lương trong hệ thống" : "Kỳ lương có phần của bạn"}
         </p>
       </div>
 
@@ -48,7 +49,7 @@ export default async function PayrollPage({
         </p>
       ) : null}
 
-      {user.role === "CFO" ? (
+      {isSystemAdmin(user.role) ? (
         <form action={createOrRecomputeDraft} className="flex items-end gap-3">
           <div className="grid gap-1">
             <Label htmlFor="month" className="text-xs">

@@ -12,7 +12,8 @@ import {
 } from "@/components/ui/table";
 import type { Prisma } from "@/generated/prisma/client";
 
-// Màn CFO/MM đối soát performance link affiliate Dealverse — theo Talent, theo nguồn, theo ngày.
+// Màn system admin (Team Tech/Team Finance)/MM đối soát performance link affiliate Dealverse —
+// theo Talent, theo nguồn, theo ngày.
 // Quy mô hiện tại còn nhỏ (vài chục Talent, tính năng mới ra mắt) nên gom 1 query rồi aggregate
 // trong JS cho cả 3 chiều, không cần groupBy SQL riêng từng chiều.
 const CLICK_QUERY_LIMIT = 20000;
@@ -54,7 +55,7 @@ export default async function AffiliatePage({
 }: {
   searchParams: Promise<{ from?: string; to?: string; talentId?: string }>;
 }) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const sp = await searchParams;
 
   const fromStr = sp.from || defaultFromStr();

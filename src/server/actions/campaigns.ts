@@ -62,7 +62,7 @@ function parseCampaignForm(formData: FormData) {
   };
 }
 
-// MM chỉ được đứng tên campaign của chính mình; CFO gán cho MM bất kỳ.
+// MM chỉ được đứng tên campaign của chính mình; system admin (Team Tech/Team Finance) gán cho MM bất kỳ.
 async function assertMmAllowed(userRole: string, userId: string, mmId: string) {
   if (userRole === "MM" && mmId !== userId) {
     return "MM chỉ được tạo campaign cho chính mình";
@@ -73,7 +73,7 @@ async function assertMmAllowed(userRole: string, userId: string, mmId: string) {
 }
 
 export async function createCampaign(formData: FormData) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const result = parseCampaignForm(formData);
   if ("error" in result) redirect(`/campaigns/new?error=${encodeURIComponent(result.error!)}`);
 
@@ -93,7 +93,7 @@ export async function createCampaign(formData: FormData) {
 }
 
 export async function updateCampaign(campaignId: string, formData: FormData) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const existing = await prisma.campaign.findUnique({ where: { id: campaignId } });
   if (!existing) redirect("/campaigns");
   if (!canEditCampaign(user, existing.mmId)) redirect("/campaigns");
@@ -125,7 +125,7 @@ const assignSchema = z.object({
 });
 
 export async function assignTalent(campaignId: string, formData: FormData) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
   if (!campaign || !canEditCampaign(user, campaign.mmId)) redirect("/campaigns");
 
@@ -172,7 +172,7 @@ export async function assignTalent(campaignId: string, formData: FormData) {
 }
 
 export async function updateAssignmentStatus(assignmentId: string, status: AssignmentStatus) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const assignment = await prisma.campaignAssignment.findUnique({
     where: { id: assignmentId },
     include: { campaign: true, talent: true },
@@ -192,7 +192,7 @@ export async function updateAssignmentStatus(assignmentId: string, status: Assig
 }
 
 export async function removeAssignment(assignmentId: string) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const assignment = await prisma.campaignAssignment.findUnique({
     where: { id: assignmentId },
     include: { campaign: true, talent: true },

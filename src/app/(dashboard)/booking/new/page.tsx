@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/authz";
+import { requireSystemAdmin } from "@/lib/authz";
 import { createBookingDeal } from "@/server/actions/payroll";
 import { BookingDealForm } from "@/components/booking-deal-form";
 
@@ -8,7 +8,7 @@ export default async function NewBookingDealPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  await requireRole("CFO");
+  await requireSystemAdmin();
   const { error } = await searchParams;
 
   const [managers, talents] = await Promise.all([

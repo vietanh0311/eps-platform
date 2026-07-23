@@ -6,10 +6,10 @@ import { hash } from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
-import { requireRole } from "@/lib/authz";
+import { requireSystemAdmin } from "@/lib/authz";
 import { Role, UserStatus } from "@/generated/prisma/enums";
 
-// Toàn bộ quản lý tài khoản chỉ dành cho CFO/COO (đã chốt ma trận quyền module 1).
+// Toàn bộ quản lý tài khoản dành cho system admin — Team Tech và Team Finance, quyền ngang nhau.
 
 const createUserSchema = z.object({
   email: z.string().trim().toLowerCase().email("Email không hợp lệ"),
@@ -19,7 +19,7 @@ const createUserSchema = z.object({
 });
 
 export async function createUser(formData: FormData) {
-  const admin = await requireRole("CFO");
+  const admin = await requireSystemAdmin();
   const parsed = createUserSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
     redirect(
@@ -51,7 +51,7 @@ export async function createUser(formData: FormData) {
 }
 
 export async function setUserStatus(userId: string, status: UserStatus) {
-  const admin = await requireRole("CFO");
+  const admin = await requireSystemAdmin();
   if (userId === admin.id) redirect(`/admin/users?error=${encodeURIComponent("Không thể tự khóa tài khoản của mình")}`);
 
   const user = await prisma.user.update({ where: { id: userId }, data: { status } });
@@ -71,7 +71,7 @@ const resetPasswordSchema = z.object({
 });
 
 export async function resetUserPassword(userId: string, formData: FormData) {
-  const admin = await requireRole("CFO");
+  const admin = await requireSystemAdmin();
   const parsed = resetPasswordSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
     redirect(

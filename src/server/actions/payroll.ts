@@ -5,19 +5,19 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
-import { requireRole } from "@/lib/authz";
+import { requireSystemAdmin } from "@/lib/authz";
 import { computePayrollDraft } from "@/server/payroll/compute";
 import type { Prisma } from "@/generated/prisma/client";
 
-// Lương/thưởng (Module 3). Chỉ CFO tạo/duyệt/trả kỳ lương, đặt cơ chế Campaign, quản lý booking
-// deal — theo đúng yêu cầu "chỉ CFO tạo/duyệt kỳ lương". Mọi action tự requireRole lại.
+// Lương/thưởng (Module 3). Team Tech/Team Finance (system admin, quyền ngang nhau) tạo/duyệt/trả
+// kỳ lương, đặt cơ chế Campaign, quản lý booking deal. Mọi action tự requireSystemAdmin lại.
 
 const monthSchema = z.string().regex(/^\d{4}-\d{2}$/, "Định dạng tháng phải là YYYY-MM");
 
 // ===== Kỳ lương =====
 
 export async function createOrRecomputeDraft(formData: FormData) {
-  const user = await requireRole("CFO");
+  const user = await requireSystemAdmin();
   const parsedMonth = monthSchema.safeParse(formData.get("month"));
   if (!parsedMonth.success) redirect(`/payroll?error=${encodeURIComponent(parsedMonth.error.issues[0]?.message ?? "Thiếu tháng")}`);
   const month = parsedMonth.data;
@@ -59,7 +59,7 @@ export async function createOrRecomputeDraft(formData: FormData) {
 }
 
 export async function approvePeriod(periodId: string) {
-  const user = await requireRole("CFO");
+  const user = await requireSystemAdmin();
   const period = await prisma.payrollPeriod.findUnique({ where: { id: periodId }, include: { items: true } });
   if (!period) redirect("/payroll");
   if (period.status !== "DRAFT") redirect(`/payroll/${periodId}?error=${encodeURIComponent("Kỳ lương không ở trạng thái Nháp")}`);
@@ -88,7 +88,7 @@ export async function approvePeriod(periodId: string) {
 }
 
 export async function markPeriodPaid(periodId: string) {
-  const user = await requireRole("CFO");
+  const user = await requireSystemAdmin();
   const period = await prisma.payrollPeriod.findUnique({ where: { id: periodId } });
   if (!period) redirect("/payroll");
   if (period.status !== "APPROVED") redirect(`/payroll/${periodId}?error=${encodeURIComponent("Kỳ lương phải Đã duyệt mới đánh dấu Đã trả được")}`);
@@ -109,7 +109,7 @@ const rewardTermsSchema = z.object({
 });
 
 export async function upsertCampaignRewardTerms(campaignId: string, formData: FormData) {
-  const user = await requireRole("CFO");
+  const user = await requireSystemAdmin();
   const parsed = rewardTermsSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) redirect(`/campaigns/${campaignId}?error=${encodeURIComponent("Dữ liệu cơ chế không hợp lệ")}`);
   const d = parsed.data;
@@ -160,7 +160,7 @@ function parseBookingDealForm(formData: FormData) {
 }
 
 export async function createBookingDeal(formData: FormData) {
-  const user = await requireRole("CFO");
+  const user = await requireSystemAdmin();
   const result = parseBookingDealForm(formData);
   if ("error" in result) redirect(`/booking/new?error=${encodeURIComponent(result.error!)}`);
 
@@ -171,7 +171,7 @@ export async function createBookingDeal(formData: FormData) {
 }
 
 export async function updateBookingDeal(dealId: string, formData: FormData) {
-  const user = await requireRole("CFO");
+  const user = await requireSystemAdmin();
   const result = parseBookingDealForm(formData);
   if ("error" in result) redirect(`/booking/${dealId}?error=${encodeURIComponent(result.error!)}`);
 
@@ -182,7 +182,7 @@ export async function updateBookingDeal(dealId: string, formData: FormData) {
 }
 
 export async function markBookingDealPaid(dealId: string) {
-  const user = await requireRole("CFO");
+  const user = await requireSystemAdmin();
   const deal = await prisma.bookingDeal.findUnique({ where: { id: dealId } });
   if (!deal) redirect("/booking");
 

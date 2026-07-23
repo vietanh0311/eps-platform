@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/authz";
+import { requireSystemAdmin } from "@/lib/authz";
 import { syncScalefNow, matchScalefVideo, unmatchScalefVideo } from "@/server/actions/scalef";
 import { extractHashtags, normalizeHashtag } from "@/server/scalef/sync";
 import { SCRAPE_RUN_STATUS_LABELS, formatDate, formatDateTime, formatVnd } from "@/lib/labels";
@@ -20,7 +20,7 @@ export default async function ScalefPage({
 }: {
   searchParams: Promise<{ synced?: string; error?: string }>;
 }) {
-  await requireRole("CFO", "TECH");
+  await requireSystemAdmin();
   const sp = await searchParams;
 
   const [runs, unmatched, activeTalents] = await Promise.all([

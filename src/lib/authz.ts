@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import type { Role } from "@/generated/prisma/enums";
+import { SYSTEM_ADMIN_ROLES, isSystemAdmin } from "@/lib/roles";
 
 export type SessionUser = { id: string; role: Role; email: string; name: string };
 
@@ -24,46 +25,55 @@ export async function requireRole(...roles: Role[]): Promise<SessionUser> {
   return user;
 }
 
-// Điều kiện lọc Talent theo role: CFO/TECH thấy tất cả, MM chỉ thấy Talent mình quản lý.
+// Team Tech (role DB TECH) và Team Finance (role DB CFO) là hai nhóm quản trị toàn hệ thống,
+// quyền ngang nhau — dùng cho MỌI action/trang chỉ dành cho system admin (trước đây hay viết
+// nhầm thành requireRole("CFO") một mình).
+export async function requireSystemAdmin(): Promise<SessionUser> {
+  return requireRole(...SYSTEM_ADMIN_ROLES);
+}
+
+// Điều kiện lọc Talent theo role: Team Tech/Team Finance thấy tất cả, MM chỉ thấy Talent mình quản lý.
 export function talentScopeWhere(user: SessionUser) {
   return user.role === "MM" ? { managerId: user.id } : {};
 }
 
-// MM chỉ được sửa Talent của mình; TECH không được sửa.
+// MM chỉ được sửa Talent của mình; Team Tech/Team Finance sửa được mọi Talent.
 export function canEditTalent(user: SessionUser, talentManagerId: string): boolean {
-  if (user.role === "CFO") return true;
+  if (isSystemAdmin(user.role)) return true;
   if (user.role === "MM") return user.id === talentManagerId;
   return false;
 }
 
 // ===== Module 2 — Campaign & Log video =====
 
-// Campaign: CFO/TECH thấy tất cả. MM thấy campaign mình phụ trách VÀ campaign mà Talent của mình
-// có video trong đó — vì campaign nhập từ log video là cấp nhãn hàng, dùng chung nhiều MM.
-// Xem được không có nghĩa là sửa được: sửa/giao Talent vẫn phải qua canEditCampaign (đúng chủ).
+// Campaign: Team Tech/Team Finance thấy tất cả. MM thấy campaign mình phụ trách VÀ campaign mà
+// Talent của mình có video trong đó — vì campaign nhập từ log video là cấp nhãn hàng, dùng chung
+// nhiều MM. Xem được không có nghĩa là sửa được: sửa/giao Talent vẫn phải qua canEditCampaign.
 export function campaignScopeWhere(user: SessionUser) {
   return user.role === "MM"
     ? { OR: [{ mmId: user.id }, { videos: { some: { talent: { managerId: user.id } } } }] }
     : {};
 }
 
-// Video: CFO/TECH thấy tất cả, MM chỉ thấy video của Talent mình quản lý.
+// Video: Team Tech/Team Finance thấy tất cả, MM chỉ thấy video của Talent mình quản lý.
 export function videoScopeWhere(user: SessionUser) {
   return user.role === "MM" ? { talent: { managerId: user.id } } : {};
 }
 
-// Chỉ CFO và MM phụ trách campaign được sửa brief / giao Talent. TECH chỉ đọc.
-// campaignMmId null = campaign đồng bộ từ Ambassador chưa ai nhận — chỉ CFO sửa được cho tới khi
-// có MM "Nhận" (set mmId), MM khác chưa được sửa dù nhìn thấy nó qua campaignScopeWhere.
+// Team Tech/Team Finance và MM phụ trách campaign được sửa brief / giao Talent — quyền ngang nhau
+// giữa hai nhóm quản trị, MM vẫn giới hạn đúng campaign mình phụ trách.
+// campaignMmId null = campaign đồng bộ từ Ambassador chưa ai nhận — chỉ system admin sửa được cho
+// tới khi có MM "Nhận" (set mmId), MM khác chưa được sửa dù nhìn thấy nó qua campaignScopeWhere.
 export function canEditCampaign(user: SessionUser, campaignMmId: string | null): boolean {
-  if (user.role === "CFO") return true;
+  if (isSystemAdmin(user.role)) return true;
   if (user.role === "MM") return campaignMmId !== null && user.id === campaignMmId;
   return false;
 }
 
-// MM log video thay cho Talent mình quản lý (Talent không có tài khoản đăng nhập).
+// MM log video thay cho Talent mình quản lý (Talent không có tài khoản đăng nhập). Team
+// Tech/Team Finance log được cho mọi Talent (quyền ngang nhau).
 export function canLogVideoFor(user: SessionUser, talentManagerId: string): boolean {
-  if (user.role === "CFO") return true;
+  if (isSystemAdmin(user.role)) return true;
   if (user.role === "MM") return user.id === talentManagerId;
   return false;
 }
@@ -73,32 +83,36 @@ export function canReviewVideo(user: SessionUser, talentManagerId: string): bool
   return canLogVideoFor(user, talentManagerId);
 }
 
-// Pipeline (gồm cả bước cuối "nộp ScaleF") là việc của team Tech, áp dụng cho MỌI video.
+// Pipeline (gồm cả bước cuối "nộp ScaleF") là việc của team Tech, áp dụng cho MỌI video —
+// Team Finance có quyền ngang Team Tech nên cũng thao tác được.
 export function canEditPipeline(user: SessionUser): boolean {
-  return user.role === "TECH" || user.role === "CFO";
+  return isSystemAdmin(user.role);
 }
 
-// MM check xác nhận phần Tech đã nộp lên ScaleF — chỉ MM phụ trách Talent đó (hoặc CFO).
+// MM check xác nhận phần Tech đã nộp lên ScaleF (hoặc system admin, quyền ngang nhau) — chỉ MM
+// phụ trách Talent đó.
 export function canConfirmScalef(user: SessionUser, talentManagerId: string): boolean {
-  if (user.role === "CFO") return true;
+  if (isSystemAdmin(user.role)) return true;
   if (user.role === "MM") return user.id === talentManagerId;
   return false;
 }
 
 // ===== Module 3 — Lương & thưởng =====
 
-// Chỉ CFO tạo/duyệt/đánh dấu đã trả kỳ lương + quản lý booking deal + đặt cơ chế Campaign.
+// Tạo/duyệt/đánh dấu đã trả kỳ lương + quản lý booking deal + đặt cơ chế Campaign — quyền ngang
+// nhau giữa Team Tech và Team Finance (hai nhóm quản trị toàn hệ thống).
 export function canManagePayroll(user: SessionUser): boolean {
-  return user.role === "CFO";
+  return isSystemAdmin(user.role);
 }
 
-// PayrollItem: CFO thấy tất cả. MM chỉ thấy dòng của chính mình (userId = mình) — không thấy dòng
-// của MM khác, không thấy dòng của Talent (kể cả Talent mình quản lý — xem riêng qua talentScopeWhere).
+// PayrollItem: Team Tech/Team Finance thấy tất cả. MM chỉ thấy dòng của chính mình (userId = mình)
+// — không thấy dòng của MM khác, không thấy dòng của Talent (kể cả Talent mình quản lý — xem
+// riêng qua talentScopeWhere).
 export function payrollItemScopeWhere(user: SessionUser) {
   return user.role === "MM" ? { userId: user.id } : {};
 }
 
-// PayrollPeriod: CFO thấy tất cả kỳ. MM chỉ thấy kỳ có ít nhất 1 item của mình.
+// PayrollPeriod: Team Tech/Team Finance thấy tất cả kỳ. MM chỉ thấy kỳ có ít nhất 1 item của mình.
 export function payrollPeriodScopeWhere(user: SessionUser) {
   return user.role === "MM" ? { items: { some: { userId: user.id } } } : {};
 }

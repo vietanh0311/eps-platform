@@ -1,11 +1,12 @@
 import type { NextAuthConfig } from "next-auth";
 import type { Role } from "@/generated/prisma/enums";
+import { isSystemAdmin } from "@/lib/roles";
 
 // Cấu hình dùng chung giữa proxy (không được import Prisma) và auth chính.
 // Provider Credentials (cần Prisma + bcrypt) nằm ở src/auth.ts.
 
-// Route chỉ CFO/COO được vào
-const CFO_ONLY_PREFIXES = ["/admin"];
+// Route chỉ Team Tech / Team Finance (system admin — role DB CFO/TECH) được vào
+const ADMIN_ONLY_PREFIXES = ["/admin"];
 // Route cần đăng nhập với role nội bộ (Talent chưa có giao diện riêng — đã chốt với CFO)
 const STAFF_ROLES: Role[] = ["CFO", "MM", "TECH"];
 
@@ -41,7 +42,7 @@ export const authConfig = {
 
       if (!isLoggedIn) return false; // tự redirect về pages.signIn
 
-      if (CFO_ONLY_PREFIXES.some((p) => pathname.startsWith(p)) && role !== "CFO") {
+      if (ADMIN_ONLY_PREFIXES.some((p) => pathname.startsWith(p)) && !isSystemAdmin(role)) {
         return Response.redirect(new URL("/", request.nextUrl));
       }
 

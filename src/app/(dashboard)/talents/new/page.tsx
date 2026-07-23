@@ -8,7 +8,7 @@ export default async function NewTalentPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const { error } = await searchParams;
 
   // MM chỉ được gán Talent cho chính mình

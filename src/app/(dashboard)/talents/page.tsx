@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser, talentScopeWhere } from "@/lib/authz";
+import { isSystemAdmin } from "@/lib/roles";
 import { TALENT_STATUS_LABELS, PLATFORM_LABELS, formatVnd } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,7 @@ export default async function TalentsPage({
       : prisma.user.findMany({ where: { role: "MM" }, orderBy: { fullName: "asc" } }),
   ]);
 
-  const canCreate = user.role === "CFO" || user.role === "MM";
+  const canCreate = isSystemAdmin(user.role) || user.role === "MM";
 
   return (
     <div className="space-y-4">

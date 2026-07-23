@@ -46,7 +46,7 @@ function parseTalentForm(formData: FormData) {
   };
 }
 
-// MM chỉ được tạo/gán Talent cho chính mình; CFO gán cho MM bất kỳ.
+// MM chỉ được tạo/gán Talent cho chính mình; system admin (Team Tech/Team Finance) gán cho MM bất kỳ.
 async function assertManagerAllowed(userRole: string, userId: string, managerId: string) {
   if (userRole === "MM" && managerId !== userId) {
     return "MM chỉ được gán Talent cho chính mình";
@@ -57,7 +57,7 @@ async function assertManagerAllowed(userRole: string, userId: string, managerId:
 }
 
 export async function createTalent(formData: FormData) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const result = parseTalentForm(formData);
   if ("error" in result) redirect(`/talents/new?error=${encodeURIComponent(result.error!)}`);
 
@@ -84,7 +84,7 @@ export async function createTalent(formData: FormData) {
 }
 
 export async function updateTalent(talentId: string, formData: FormData) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const existing = await prisma.talent.findUnique({ where: { id: talentId } });
   if (!existing) redirect("/talents");
   if (!canEditTalent(user, existing.managerId)) redirect("/talents");
@@ -118,7 +118,7 @@ const channelSchema = z.object({
 });
 
 export async function addChannel(talentId: string, formData: FormData) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const talent = await prisma.talent.findUnique({ where: { id: talentId } });
   if (!talent || !canEditTalent(user, talent.managerId)) redirect("/talents");
 
@@ -152,7 +152,7 @@ export async function addChannel(talentId: string, formData: FormData) {
 }
 
 export async function deleteChannel(channelId: string) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const channel = await prisma.talentChannel.findUnique({
     where: { id: channelId },
     include: { talent: true },

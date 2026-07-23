@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { campaignScopeWhere, requireUser } from "@/lib/authz";
+import { isSystemAdmin } from "@/lib/roles";
 import { CAMPAIGN_STATUS_LABELS, formatDate, formatVnd } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,7 @@ export default async function CampaignsPage({
       : prisma.user.findMany({ where: { role: "MM" }, orderBy: { fullName: "asc" } }),
   ]);
 
-  const canCreate = user.role === "CFO" || user.role === "MM";
+  const canCreate = isSystemAdmin(user.role) || user.role === "MM";
 
   return (
     <div className="space-y-4">
@@ -52,11 +53,7 @@ export default async function CampaignsPage({
         <div>
           <h1 className="text-2xl font-semibold">Campaign / Brief</h1>
           <p className="text-sm text-muted-foreground">
-            {user.role === "MM"
-              ? "Campaign bạn phụ trách"
-              : user.role === "TECH"
-                ? "Toàn bộ campaign (chỉ đọc)"
-                : "Toàn bộ campaign trong hệ thống"}
+            {user.role === "MM" ? "Campaign bạn phụ trách" : "Toàn bộ campaign trong hệ thống"}
           </p>
         </div>
         {canCreate ? (

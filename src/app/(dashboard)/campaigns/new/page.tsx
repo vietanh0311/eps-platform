@@ -8,7 +8,7 @@ export default async function NewCampaignPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  const user = await requireRole("CFO", "MM");
+  const user = await requireRole("CFO", "TECH", "MM");
   const { error } = await searchParams;
 
   // MM chỉ được đứng tên campaign của chính mình
