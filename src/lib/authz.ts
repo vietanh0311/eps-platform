@@ -46,12 +46,20 @@ export function canEditTalent(user: SessionUser, talentManagerId: string): boole
 
 // ===== Module 2 — Campaign & Log video =====
 
-// Campaign: Team Tech/Team Finance thấy tất cả. MM thấy campaign mình phụ trách VÀ campaign mà
-// Talent của mình có video trong đó — vì campaign nhập từ log video là cấp nhãn hàng, dùng chung
-// nhiều MM. Xem được không có nghĩa là sửa được: sửa/giao Talent vẫn phải qua canEditCampaign.
+// Campaign: Team Tech/Team Finance thấy tất cả. MM thấy campaign mình phụ trách, campaign mà
+// Talent của mình có video trong đó (campaign nhập từ log video là cấp nhãn hàng, dùng chung
+// nhiều MM), VÀ campaign đồng bộ Ambassador chưa ai nhận (mmId null — phải thấy được mới "Nhận"
+// được, xem canClaimCampaign). Xem được không có nghĩa là sửa được: sửa/giao Talent vẫn phải qua
+// canEditCampaign.
 export function campaignScopeWhere(user: SessionUser) {
   return user.role === "MM"
-    ? { OR: [{ mmId: user.id }, { videos: { some: { talent: { managerId: user.id } } } }] }
+    ? {
+        OR: [
+          { mmId: user.id },
+          { videos: { some: { talent: { managerId: user.id } } } },
+          { mmId: null },
+        ],
+      }
     : {};
 }
 
@@ -68,6 +76,13 @@ export function canEditCampaign(user: SessionUser, campaignMmId: string | null):
   if (isSystemAdmin(user.role)) return true;
   if (user.role === "MM") return campaignMmId !== null && user.id === campaignMmId;
   return false;
+}
+
+// Campaign đồng bộ từ Ambassador chưa ai nhận (mmId null) — MM tự nhận, hoặc system admin nhận
+// thay (chọn MM bất kỳ). Campaign đã có mmId thì không "nhận" được nữa, chỉ sửa qua canEditCampaign.
+export function canClaimCampaign(user: SessionUser, campaign: { mmId: string | null }): boolean {
+  if (campaign.mmId !== null) return false;
+  return isSystemAdmin(user.role) || user.role === "MM";
 }
 
 // MM log video thay cho Talent mình quản lý (Talent không có tài khoản đăng nhập). Team

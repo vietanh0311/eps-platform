@@ -2,7 +2,14 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { campaignScopeWhere, requireUser } from "@/lib/authz";
 import { isSystemAdmin } from "@/lib/roles";
-import { CAMPAIGN_STATUS_LABELS, formatDate, formatVnd } from "@/lib/labels";
+import { syncAmbassadorNow } from "@/server/actions/campaigns";
+import {
+  CAMPAIGN_SOURCE_LABELS,
+  CAMPAIGN_STATUS_LABELS,
+  formatDate,
+  formatDateTime,
+  formatVnd,
+} from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,14 +26,23 @@ import type { CampaignStatus, Prisma } from "@/generated/prisma/client";
 export default async function CampaignsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; status?: string; mm?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    status?: string;
+    mm?: string;
+    claim?: string;
+    synced?: string;
+    error?: string;
+  }>;
 }) {
   const user = await requireUser();
-  const { q, status, mm } = await searchParams;
+  const { q, status, mm, claim, synced, error } = await searchParams;
 
   const where: Prisma.CampaignWhereInput = { ...campaignScopeWhere(user) };
   if (status && status in CAMPAIGN_STATUS_LABELS) where.status = status as CampaignStatus;
   if (mm && user.role !== "MM") where.mmId = mm;
+  if (claim === "mine") where.mmId = user.id;
+  if (claim === "unclaimed") where.mmId = null;
   if (q) {
     where.OR = [
       { name: { contains: q, mode: "insensitive" } },
@@ -34,7 +50,7 @@ export default async function CampaignsPage({
     ];
   }
 
-  const [campaigns, managers] = await Promise.all([
+  const [campaigns, managers, lastSync] = await Promise.all([
     prisma.campaign.findMany({
       where,
       include: { mm: true, _count: { select: { assignments: true, videos: true } } },
@@ -43,6 +59,10 @@ export default async function CampaignsPage({
     user.role === "MM"
       ? Promise.resolve([])
       : prisma.user.findMany({ where: { role: "MM" }, orderBy: { fullName: "asc" } }),
+    prisma.syncRun.findFirst({
+      where: { source: "ambassador_campaigns" },
+      orderBy: { startedAt: "desc" },
+    }),
   ]);
 
   const canCreate = isSystemAdmin(user.role) || user.role === "MM";
@@ -56,11 +76,50 @@ export default async function CampaignsPage({
             {user.role === "MM" ? "Campaign bạn phụ trách" : "Toàn bộ campaign trong hệ thống"}
           </p>
         </div>
-        {canCreate ? (
-          <Button asChild>
-            <Link href="/campaigns/new">+ Tạo campaign</Link>
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          <form action={syncAmbassadorNow}>
+            <Button type="submit" variant="outline">
+              Đồng bộ Ambassador ngay
+            </Button>
+          </form>
+          {canCreate ? (
+            <Button asChild>
+              <Link href="/campaigns/new">+ Tạo campaign</Link>
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        {lastSync
+          ? `Đồng bộ Ambassador lần cuối ${formatDateTime(lastSync.startedAt)} — ${lastSync.ok ? `OK, ${lastSync.items} campaign` : `Lỗi: ${lastSync.error}`}`
+          : "Chưa đồng bộ Ambassador lần nào."}
+      </p>
+      {synced ? (
+        <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
+          Đồng bộ xong — {synced} campaign.
+        </p>
+      ) : null}
+      {error ? (
+        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        <Link
+          href="/campaigns?claim=mine"
+          className="rounded-md border px-3 py-2 text-sm hover:bg-accent"
+        >
+          Của tôi
+        </Link>
+        <Link
+          href="/campaigns?claim=unclaimed"
+          className="rounded-md border px-3 py-2 text-sm hover:bg-accent"
+        >
+          Chưa nhận
+        </Link>
+        <Link href="/campaigns" className="rounded-md border px-3 py-2 text-sm hover:bg-accent">
+          Tất cả
+        </Link>
       </div>
 
       <form className="flex flex-wrap items-end gap-3" method="GET">
@@ -86,6 +145,21 @@ export default async function CampaignsPage({
                 {label}
               </option>
             ))}
+          </select>
+        </div>
+        <div className="grid gap-1">
+          <label className="text-xs text-muted-foreground" htmlFor="claim">
+            Nhận việc
+          </label>
+          <select
+            id="claim"
+            name="claim"
+            defaultValue={claim ?? ""}
+            className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+          >
+            <option value="">Tất cả</option>
+            <option value="mine">Của tôi</option>
+            <option value="unclaimed">Chưa nhận</option>
           </select>
         </div>
         {user.role !== "MM" ? (
@@ -119,6 +193,7 @@ export default async function CampaignsPage({
             <TableRow>
               <TableHead>Campaign</TableHead>
               <TableHead>Nhãn hàng</TableHead>
+              <TableHead>Nguồn</TableHead>
               <TableHead>MM</TableHead>
               <TableHead>Thời gian</TableHead>
               <TableHead className="text-right">Talent</TableHead>
@@ -130,7 +205,7 @@ export default async function CampaignsPage({
           <TableBody>
             {campaigns.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
                   Chưa có campaign nào khớp bộ lọc
                 </TableCell>
               </TableRow>
@@ -143,6 +218,9 @@ export default async function CampaignsPage({
                     </Link>
                   </TableCell>
                   <TableCell className="text-sm">{c.brandName}</TableCell>
+                  <TableCell className="text-xs">
+                    <Badge variant="outline">{CAMPAIGN_SOURCE_LABELS[c.source]}</Badge>
+                  </TableCell>
                   <TableCell className="text-sm">
                     {c.mm ? c.mm.fullName : <span className="text-muted-foreground">Chưa nhận</span>}
                   </TableCell>

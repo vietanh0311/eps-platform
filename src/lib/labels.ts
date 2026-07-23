@@ -126,3 +126,19 @@ export function formatDateTime(value: Date | null | undefined): string {
     minute: "2-digit",
   }).format(value);
 }
+
+// desc_html của campaign đồng bộ Ambassador là dữ liệu ngoài — KHÔNG BAO GIỜ render trực tiếp
+// (dangerouslySetInnerHTML), chèn <script> là chiếm được phiên CFO. Strip toàn bộ tag thành văn
+// xuôi thường; brief đầy đủ có định dạng thì mở source_url xem bản gốc.
+export function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}

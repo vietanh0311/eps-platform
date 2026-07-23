@@ -15,7 +15,8 @@
     "payroll:reconcile": "tsx scripts/reconcile-payroll.ts",
     "scalef:sync": "tsx scripts/sync-scalef.ts",
     "scalef:compare-views": "tsx scripts/compare-avg-views.ts",
-    "insights:run": "tsx scripts/run-insights.ts"
+    "insights:run": "tsx scripts/run-insights.ts",
+    "sync:ambassador": "tsx scripts/sync-ambassador.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.0",

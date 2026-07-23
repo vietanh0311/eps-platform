@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
-import { canEditCampaign, requireRole } from "@/lib/authz";
+import { canClaimCampaign, canEditCampaign, requireRole } from "@/lib/authz";
+import { syncAmbassadorCampaigns } from "@/server/ambassador/sync";
 import { AssignmentStatus, CampaignSource, CampaignStatus } from "@/generated/prisma/enums";
 
 // Campaign/Brief — MM nhận brief và giao việc cho Talent mình quản lý.
@@ -209,4 +210,55 @@ export async function removeAssignment(assignmentId: string) {
   });
   revalidatePath(`/campaigns/${assignment.campaignId}`);
   redirect(`/campaigns/${assignment.campaignId}`);
+}
+
+// ===== Đồng bộ Campaign từ Ambassador =====
+
+// Nút "Đồng bộ ngay" trên /campaigns — gọi chung 1 hàm với cron (scripts/sync-ambassador.ts).
+// Không sửa dữ liệu người khác nên an toàn cho cả MM bấm.
+export async function syncAmbassadorNow() {
+  await requireRole("CFO", "TECH", "MM");
+  const result = await syncAmbassadorCampaigns("MANUAL");
+  revalidatePath("/campaigns");
+
+  const qs = result.ok
+    ? `synced=${result.itemsFound}`
+    : `error=${encodeURIComponent(result.error ?? "Đồng bộ thất bại")}`;
+  redirect(`/campaigns?${qs}`);
+}
+
+// Campaign đồng bộ từ Ambassador chưa có ai nhận (mmId null) — MM tự nhận (set mmId = mình);
+// system admin chọn MM bất kỳ qua <select> trên form.
+export async function claimCampaign(campaignId: string, formData: FormData) {
+  const user = await requireRole("CFO", "TECH", "MM");
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  if (!campaign) redirect("/campaigns");
+  if (!canClaimCampaign(user, campaign)) redirect(`/campaigns/${campaignId}`);
+
+  let mmId: string;
+  if (user.role === "MM") {
+    mmId = user.id;
+  } else {
+    const selected = formData.get("mmId");
+    if (typeof selected !== "string" || !selected) {
+      redirect(`/campaigns/${campaignId}?error=${encodeURIComponent("Chưa chọn MM")}`);
+    }
+    const mm = await prisma.user.findUnique({ where: { id: selected } });
+    if (!mm || mm.role !== "MM") {
+      redirect(`/campaigns/${campaignId}?error=${encodeURIComponent("Người được chọn phải có role MM")}`);
+    }
+    mmId = selected;
+  }
+
+  await prisma.campaign.update({ where: { id: campaignId }, data: { mmId } });
+  await logAudit({
+    userId: user.id,
+    action: "UPDATE",
+    entity: "campaigns",
+    entityId: campaignId,
+    detail: `Nhận campaign ${campaign.name} (MM: ${mmId})`,
+  });
+  revalidatePath("/campaigns");
+  revalidatePath(`/campaigns/${campaignId}`);
+  redirect(`/campaigns/${campaignId}`);
 }

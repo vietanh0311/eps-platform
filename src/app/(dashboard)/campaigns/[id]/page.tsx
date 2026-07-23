@@ -1,9 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { campaignScopeWhere, canEditCampaign, requireUser, talentScopeWhere } from "@/lib/authz";
+import { campaignScopeWhere, canClaimCampaign, canEditCampaign, requireUser, talentScopeWhere } from "@/lib/authz";
 import { isSystemAdmin } from "@/lib/roles";
-import { assignTalent, removeAssignment, updateAssignmentStatus, updateCampaign } from "@/server/actions/campaigns";
+import {
+  assignTalent,
+  claimCampaign,
+  removeAssignment,
+  updateAssignmentStatus,
+  updateCampaign,
+} from "@/server/actions/campaigns";
 import { upsertCampaignRewardTerms } from "@/server/actions/payroll";
 import { CampaignForm } from "@/components/campaign-form";
 import {
@@ -14,6 +20,7 @@ import {
   REVIEW_STATUS_LABELS,
   formatDate,
   formatVnd,
+  stripHtml,
 } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -60,6 +67,7 @@ export default async function CampaignDetailPage({
   if (!campaign) notFound();
 
   const editable = canEditCampaign(user, campaign.mmId);
+  const claimable = canClaimCampaign(user, campaign);
   const managers =
     user.role === "MM"
       ? [{ id: user.id, fullName: user.name }]
@@ -111,34 +119,70 @@ export default async function CampaignDetailPage({
           submitLabel="Lưu thay đổi"
         />
       ) : (
-        <dl className="grid max-w-2xl grid-cols-2 gap-x-6 gap-y-3 text-sm">
-          <dt className="text-muted-foreground">Nhãn hàng</dt>
-          <dd>{campaign.brandName}</dd>
-          <dt className="text-muted-foreground">Nguồn</dt>
-          <dd>{CAMPAIGN_SOURCE_LABELS[campaign.source]}</dd>
-          <dt className="text-muted-foreground">MM phụ trách</dt>
-          <dd>{campaign.mm ? campaign.mm.fullName : "Chưa nhận"}</dd>
-          <dt className="text-muted-foreground">Thời gian</dt>
-          <dd>
-            {formatDate(campaign.startDate)} → {formatDate(campaign.endDate)}
-          </dd>
-          <dt className="text-muted-foreground">Giá trị booking</dt>
-          <dd>{campaign.contractValue != null ? formatVnd(campaign.contractValue) : "—"}</dd>
-          <dt className="text-muted-foreground">Link thể lệ</dt>
-          <dd>
-            {campaign.sourceUrl ? (
-              <a href={campaign.sourceUrl} target="_blank" rel="noreferrer" className="hover:underline">
-                Mở thể lệ gốc
-              </a>
-            ) : (
-              "—"
-            )}
-          </dd>
-          <dt className="text-muted-foreground">Brief</dt>
-          <dd className="whitespace-pre-wrap">{campaign.brief ?? "—"}</dd>
-          <dt className="text-muted-foreground">Ghi chú</dt>
-          <dd>{campaign.notes ?? "—"}</dd>
-        </dl>
+        <div className="max-w-2xl space-y-4">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <dt className="text-muted-foreground">Nhãn hàng</dt>
+            <dd>{campaign.brandName}</dd>
+            <dt className="text-muted-foreground">Nguồn</dt>
+            <dd>{CAMPAIGN_SOURCE_LABELS[campaign.source]}</dd>
+            <dt className="text-muted-foreground">MM phụ trách</dt>
+            <dd>{campaign.mm ? campaign.mm.fullName : "Chưa nhận"}</dd>
+            <dt className="text-muted-foreground">Thời gian</dt>
+            <dd>
+              {formatDate(campaign.startDate)} → {formatDate(campaign.endDate)}
+            </dd>
+            <dt className="text-muted-foreground">Giá trị booking</dt>
+            <dd>{campaign.contractValue != null ? formatVnd(campaign.contractValue) : "—"}</dd>
+            <dt className="text-muted-foreground">Link thể lệ</dt>
+            <dd>
+              {campaign.sourceUrl ? (
+                <a href={campaign.sourceUrl} target="_blank" rel="noreferrer" className="hover:underline">
+                  Mở thể lệ gốc
+                </a>
+              ) : (
+                "—"
+              )}
+            </dd>
+            <dt className="text-muted-foreground">Brief</dt>
+            <dd className="whitespace-pre-wrap">{campaign.brief ?? "—"}</dd>
+            <dt className="text-muted-foreground">Ghi chú</dt>
+            <dd>{campaign.notes ?? "—"}</dd>
+          </dl>
+
+          {campaign.descHtml ? (
+            <div>
+              <p className="mb-1 text-sm text-muted-foreground">Mô tả từ Ambassador</p>
+              {/* desc_html là dữ liệu ngoài — strip toàn bộ tag, KHÔNG dangerouslySetInnerHTML
+                  (chèn <script> là chiếm được phiên CFO, rủi ro thật). Xem thể lệ gốc qua link ở trên. */}
+              <p className="whitespace-pre-wrap text-sm">{stripHtml(campaign.descHtml)}</p>
+            </div>
+          ) : null}
+
+          {claimable ? (
+            <form action={claimCampaign.bind(null, campaign.id)} className="flex flex-wrap items-end gap-3">
+              {!isSystemAdmin(user.role) ? null : (
+                <div className="grid gap-1">
+                  <Label htmlFor="mmId" className="text-xs">
+                    Giao cho MM
+                  </Label>
+                  <select
+                    id="mmId"
+                    name="mmId"
+                    required
+                    className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                  >
+                    {managers.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.fullName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <Button type="submit">Nhận campaign này</Button>
+            </form>
+          ) : null}
+        </div>
       )}
 
       {isSystemAdmin(user.role) ? (

@@ -58,7 +58,7 @@ Triển khai Module 2 — Campaign/Brief + Log video cho eps-platform:
   trong docs/PROJECT_EPS.md và eps-platform/README.md.
 ```
 
-## Bổ sung Module 2 — Đồng bộ Campaign từ Ambassador (schema đã có sẵn, chỉ còn viết sync + UI)
+## Bổ sung Module 2 — Đồng bộ Campaign từ Ambassador (schema đã có sẵn, chỉ còn viết sync + UI) (✅ đã code)
 
 ```
 Đọc docs/PROJECT_EPS.md và docs/DB_SCHEMA.md (nhóm 3 — mục "Cập nhật 2026-07-22 — đồng bộ

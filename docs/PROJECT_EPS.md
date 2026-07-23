@@ -470,11 +470,46 @@ Rủi ro đã chấp nhận:
     được; bấm "Mở lại kỳ lương" → về Draft thành công. **Đã dọn dữ liệu test** sau khi verify (trả
     3 video test về `NULL`, xóa kỳ lương 2026-03 thử nghiệm) — DB thật không còn dấu vết, vẫn đúng
     317/317 video `NULL` và chỉ còn kỳ lương thật 2026-06 (PAID). `npm run build` sạch.
-- Tiếp theo theo lộ trình: 1 việc bổ sung vẫn đang chờ code (không phụ thuộc Module 6):
-  - "Bổ sung Module 2 — Đồng bộ Ambassador" (thiết kế xong) — tham khảo `src/server/scalef/` (đã
-    code, đã verify thật) làm khuôn mẫu, cùng dạng bài (gọi API ngoài, validate zod, advisory
-    lock, bảng log).
-  - ~~"Bổ sung Module 2/3 — Chi phí video"~~ đã xong 2026-07-23, xem mục ngay trên.
+- **2026-07-23 — Bổ sung Module 2: Đồng bộ Campaign từ Ambassador (HOÀN THÀNH).** Schema đã
+  migrate sẵn từ trước (xem `docs/DB_SCHEMA.md` nhóm 3) — chỉ còn viết code gọi API + upsert + UI,
+  đúng như prompt đã ghi. `npx prisma migrate status` xác nhận sạch, không tạo migration mới.
+  - **`src/server/ambassador/client.ts` + `sync.ts`** (mới, cùng dạng bài `src/server/scalef/`):
+    2 endpoint public `GET /api/public/news?type=home_list` + `/api/public/partners` — **không
+    cần đăng nhập/token**, đơn giản hơn ScaleF. Envelope validate bằng zod nhưng item lẻ sai
+    schema chỉ bị bỏ qua đúng item đó (không làm hỏng cả lô — khác lúc đầu định validate
+    `z.array(item)` sẽ fail cả mảng nếu 1 item lỗi, đã sửa lại thành validate hình dạng mảng lỏng
+    rồi parse từng item riêng). Upsert theo `externalKey = "ambassador:<_id>"`, chỉ liệt kê tường
+    minh cột Ambassador làm chủ trong `update` (không spread payload) — đã verify thật bằng cách
+    sửa tay `notes`/`brief` một campaign đã sync rồi chạy lại: không bị ghi đè.
+  - **Quy đổi múi giờ + suy brandName đã verify bằng dữ liệu thật** trước khi tin: hàm
+    `Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Ho_Chi_Minh'})` cho đúng ngày (không lệch);
+    parse slug đầu path `action.value` đối chiếu `/api/public/partners` (vd `nhakhoaparkway` →
+    "Nha Khoa Parkway") — vài title không khớp partner nào thì rơi về fallback cắt theo dấu "-"
+    đầu tiên của title (chấp nhận được, không phải lỗi).
+  - `npm run sync:ambassador` (`scripts/sync-ambassador.ts`) + nút "Đồng bộ Ambassador ngay" trên
+    `/campaigns` (server action `syncAmbassadorNow`, mọi role bấm được, không sửa dữ liệu người
+    khác). Chạy thật 2 lần liên tiếp: lần 1 tạo 24 campaign mới (tổng 14 → 38: 13 MANUAL + 1
+    INTERNAL có sẵn + 24 AMBASSADOR), lần 2 không tạo trùng.
+  - **UI**: `/campaigns` thêm chip "Của tôi"/"Chưa nhận"/"Tất cả" + dropdown "Nhận việc" (kết hợp
+    được với filter cũ), cột badge Nguồn, dòng trạng thái đồng bộ cuối. `/campaigns/[id]`: nhánh
+    chưa nhận (`mmId` null) hiện `descHtml` dạng văn xuôi (`stripHtml`, KHÔNG
+    `dangerouslySetInnerHTML`) + nút "Nhận campaign này" (`claimCampaign` — MM tự nhận, system
+    admin chọn MM bất kỳ qua dropdown).
+  - **Phát hiện lúc verify, đã sửa ngay**: `campaignScopeWhere` (MM) trước đó chỉ cho MM thấy
+    campaign mình phụ trách hoặc có Talent dính video — campaign Ambassador chưa ai nhận (`mmId`
+    null) hoàn toàn không lọt vào scope, MM không thể nào bấm "Nhận" vì còn chưa thấy được campaign
+    (404 khi vào thẳng URL). Đã thêm `{ mmId: null }` vào `OR` của `campaignScopeWhere` —
+    xem/nhận được không có nghĩa sửa được, `canEditCampaign` vẫn kiểm soát riêng.
+  - **Verify E2E thật trên browser**: CFO (system admin) luôn thấy form sửa đầy đủ ngay (không qua
+    nút Nhận, đúng vì `canEditCampaign` cho system admin luôn true) — chọn MM trực tiếp trong form
+    cũng là một cách "nhận thay". MM Giang vào 1 campaign Ambassador chưa nhận → thấy đúng nút
+    "Nhận campaign này" + mô tả sạch không lộ tag HTML → bấm nhận → `mmId` được set, `audit_logs`
+    ghi đúng, trang chuyển sang form sửa đầy đủ, Talent chọn được đúng Talent của Giang. Đã dọn dữ
+    liệu test sau verify (trả `mmId` về `NULL`, xóa `notes`/`brief` test) — DB thật không còn dấu
+    vết. `npm run build` sạch.
+  - Không làm (theo đúng prompt gốc): không bảng `brands`/`brand_aliases` riêng, không cơ chế
+    "adopt" tách khỏi việc set `mmId`, không khớp campaign lịch sử 14 dòng `MANUAL` cũ với
+    Ambassador mới.
 - Bộ prompt sẵn cho từng module (CFO copy vào chat mới, mỗi module 1 chat): `docs/MODULE_PROMPTS.md`.
 - File gốc `PROJECT_EPS.txt` (bị lỗi encoding) đã được thay bằng file này; có thể xóa file cũ.
 
