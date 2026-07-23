@@ -120,6 +120,9 @@ model User {
   bookingDealsSold     BookingDeal[] @relation("BookingSeller")
   bookingDealsCreated  BookingDeal[] @relation("BookingCreator")
 
+  // Module 6 — Chi phí
+  expensesCreated Expense[] @relation("ExpenseCreator")
+
   @@map("users")
 }
 
@@ -223,6 +226,7 @@ model Campaign {
 
   assignments CampaignAssignment[]
   videos      Video[]
+  expenses    Expense[]
 
   @@index([status])
   @@index([mmId])
@@ -290,6 +294,7 @@ model Video {
 
   pipelineEvents VideoPipelineEvent[]
   scalefVideos   ScalefVideo[]
+  expenses       Expense[]
 
   @@index([airDate])
   @@index([talentId])
@@ -416,6 +421,65 @@ model AuditLog {
   at       DateTime @default(now())
 
   @@map("audit_logs")
+}
+
+// ===== Nhóm 8 — Tài chính & Insight (Module 6) =====
+
+enum ExpenseCategory {
+  ADS
+  PRODUCTION
+  SALARY
+  OTHER
+}
+
+enum InsightSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+// Chi phí ads/lương/khác gắn (tùy chọn) với campaign hoặc video cụ thể — nguồn dữ liệu chi phí
+// dashboard lợi nhuận, bên cạnh Video.productionCost (chi phí sản xuất đã có sẵn từ Module 2).
+model Expense {
+  id          String          @id @default(cuid())
+  category    ExpenseCategory
+  amount      Int
+  incurredAt  DateTime        @map("incurred_at") @db.Date
+  campaignId  String?         @map("campaign_id")
+  campaign    Campaign?       @relation(fields: [campaignId], references: [id])
+  videoId     String?         @map("video_id")
+  video       Video?          @relation(fields: [videoId], references: [id])
+  note        String?
+  createdById String          @map("created_by")
+  createdBy   User            @relation("ExpenseCreator", fields: [createdById], references: [id])
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  @@index([incurredAt])
+  @@index([campaignId])
+  @@index([videoId])
+  @@map("expenses")
+}
+
+// Cảnh báo rule-based (VIDEO_LATE, VIEW_DROP, SCRAPER_FAILED, TALENT_INACTIVE,
+// VIEW_ASSUMPTION_MISMATCH — xem src/server/insights/engine.ts), lọc hiển thị theo role qua
+// visibleToRoles. resolvedAt null = đang mở; engine tự đóng khi điều kiện không còn đúng nữa
+// (xem thiết kế dedupe/lifecycle trong engine.ts — không có cột khóa tự nhiên nào ở đây vì mỗi
+// rule có khóa khác nhau, tự nhúng trong `data`).
+model Insight {
+  id             String          @id @default(cuid())
+  type           String
+  severity       InsightSeverity
+  visibleToRoles Role[]          @map("visible_to_roles")
+  title          String
+  message        String
+  data           Json
+  resolvedAt     DateTime?       @map("resolved_at")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  @@index([type, resolvedAt])
+  @@map("insights")
 }
 
 // ===== Nhóm 6 — Lương & thưởng (Module 3) =====

@@ -116,3 +116,17 @@ export function payrollItemScopeWhere(user: SessionUser) {
 export function payrollPeriodScopeWhere(user: SessionUser) {
   return user.role === "MM" ? { items: { some: { userId: user.id } } } : {};
 }
+
+// ===== Module 6 — Dashboard, chi phí, insight =====
+
+// Quản lý chi phí (tạo/sửa/xóa) — quyền ngang nhau giữa Team Tech/Team Finance, không phân biệt
+// người tạo (đúng triết lý system-admin ngang quyền của requireSystemAdmin), cùng cách
+// canManagePayroll chỉ là alias có tên miền nghiệp vụ của isSystemAdmin.
+export function canManageExpenses(user: SessionUser): boolean {
+  return isSystemAdmin(user.role);
+}
+
+// Insight: lọc theo role đang đăng nhập có nằm trong visibleToRoles không.
+export function insightRoleWhere(user: SessionUser) {
+  return { visibleToRoles: { has: user.role } };
+}

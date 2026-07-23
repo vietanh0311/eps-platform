@@ -1,11 +1,19 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { campaignScopeWhere, requireUser, talentScopeWhere, videoScopeWhere } from "@/lib/authz";
+import { isSystemAdmin } from "@/lib/roles";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AdminDashboard } from "./_components/admin-dashboard";
+import { MmDashboard } from "./_components/mm-dashboard";
 import type { Prisma } from "@/generated/prisma/client";
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ insightsCreated?: string; insightsResolved?: string; insightsError?: string }>;
+}) {
   const user = await requireUser();
+  const sp = await searchParams;
   const talentScope = talentScopeWhere(user);
   const videoScope = videoScopeWhere(user) as Prisma.VideoWhereInput;
 
@@ -57,10 +65,19 @@ export default async function HomePage() {
       <div>
         <h1 className="text-2xl font-semibold">Tổng quan</h1>
         <p className="text-sm text-muted-foreground">
-          Module hiện có: hồ sơ Talent, Campaign/Brief, Log video + pipeline. Lương thưởng, đồng bộ
-          ScaleF, Dealverse sẽ lên theo lộ trình.
+          Doanh thu, chi phí, lợi nhuận, cảnh báo tự động — cập nhật theo dữ liệu thật trong hệ thống.
         </p>
       </div>
+
+      {sp.insightsCreated || sp.insightsResolved ? (
+        <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
+          Chạy insight xong — tạo mới {sp.insightsCreated ?? 0}, đóng {sp.insightsResolved ?? 0}.
+        </p>
+      ) : null}
+      {sp.insightsError ? (
+        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.insightsError}</p>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {stats.map((s) => (
           <Link key={s.label} href={s.href}>
@@ -74,6 +91,8 @@ export default async function HomePage() {
           </Link>
         ))}
       </div>
+
+      {isSystemAdmin(user.role) ? <AdminDashboard user={user} /> : user.role === "MM" ? <MmDashboard user={user} /> : null}
     </div>
   );
 }
