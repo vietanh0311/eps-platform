@@ -353,6 +353,14 @@ model ScalefVideo {
   // Caption/title thô từ ScaleF — KHÔNG có trong docs/DB_SCHEMA.md nhóm 5 gốc, thêm để màn ghép
   // tay (/scalef) hiện lại hashtag + tính lại xung đột mà không cần gọi lại API ScaleF mỗi lần tải trang.
   title             String?
+  // Danh tính người đăng do chính ScaleF xác định (`createdBy` trong /contents) — đáng tin hơn
+  // hashtag tự do trong title, vì người đăng không phải lúc nào cũng gõ lại hashtag trong caption.
+  // Dùng để đối chiếu với talents.scalef_username khi ghép Talent (xem resolveVideoId trong sync.ts).
+  scalefCreatorId   String?   @map("scalef_creator_id")
+  scalefCreatorName String?   @map("scalef_creator_name")
+  // Ngày đăng thật trên ScaleF (`publishedAt`) — dùng để gợi ý video ứng viên gần ngày nhất ở màn
+  // ghép tay /scalef khi 1 Talent có nhiều video ứng viên (vẫn chọn tay, chỉ sắp thứ tự gợi ý).
+  publishedAt       DateTime? @map("published_at")
   approvedOnScalef  Boolean   @default(false) @map("approved_on_scalef")
   firstSeenAt       DateTime  @default(now()) @map("first_seen_at")
   lastSeenAt        DateTime  @map("last_seen_at")

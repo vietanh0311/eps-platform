@@ -390,6 +390,58 @@ Rủi ro đã chấp nhận:
   `DATABASE_URL`, `AUTH_SECRET`, `SCALEF_ADMIN_EMAIL/PASSWORD/BASE_URL` — đủ 5/5, không thiếu,
   không có giá trị thật). Sửa bằng cách thêm `!.env.example` ngay sau rule `.env*` trong
   `.gitignore`, commit + push riêng (không gộp việc khác). `npm run build` sạch sau khi sửa.
+- **2026-07-23 — Điều tra + fix ghép ScaleF-Talent (0/145).** Điều tra bằng DB thật + gọi trực
+  tiếp API ScaleF thật (không đoán, không dùng script tạm nào để lại trong repo).
+  - **Kết luận: không phải bug** — `resolveVideoId` (nay đổi tên `resolveTalentMatch`) làm đúng
+    thiết kế bảo thủ đã tài liệu hoá (chỉ tự gán khi thu hẹp đúng 1 Talent VÀ đúng 1 video ứng
+    viên). 145 dòng chia đúng số đã ghi: 63 khớp 1 Talent nhưng nhiều video ứng viên, 35 khớp 1
+    Talent nhưng 0 video ứng viên (Talent đó chưa video nào Tech nộp ScaleF), 22 hashtag trùng
+    ≥2 Talent, 25 không nhận diện được hashtag/không khớp Talent nào.
+  - **Phát hiện quan trọng:** API `/contents` trả sẵn `createdBy: {_id, name}` — danh tính người
+    đăng do chính ScaleF xác định — nhưng code cũ bỏ phí hoàn toàn, chỉ dựa hashtag tự do trong
+    caption (Talent không phải lúc nào cũng gõ lại hashtag). Đối chiếu `createdBy.name` với
+    `talents.scalef_username` cho kết quả khớp tuyệt đối ở các Talent đã điền username (Chi, Giang,
+    Nhung, Phanh Têy) — tín hiệu đáng tin hơn hashtag nhiều.
+  - **Đã sửa** (`prisma/schema.prisma`, `src/server/scalef/sync.ts`, `src/app/(dashboard)/scalef/page.tsx`):
+    thêm 2 cột `ScalefVideo.scalefCreatorId/scalefCreatorName` (lưu `createdBy` mỗi lần sync) +
+    `publishedAt` (ngày đăng thật ScaleF); `resolveTalentMatch` dùng `scalef_username` làm tín hiệu
+    thứ 2 song song hashtag — thu hẹp xung đột hashtag về đúng 1 người khi username khớp
+    `createdBy.name` (so sánh CHÍNH XÁC, không phân biệt hoa/thường — cố tình không nới lỏng thành
+    khớp gần đúng để tránh gán sai thưởng). Màn `/scalef` hiện thêm "ScaleF ghi nhận người đăng: …"
+    mỗi dòng, sắp video ứng viên theo khoảng cách ngày gần `publishedAt` nhất lên đầu (vẫn chọn
+    tay). Không đổi triết lý: vẫn không bao giờ tự gán khi còn ≥2 ứng viên.
+  - **Verify:** `npx prisma migrate dev` sạch (2 migration), `npm run scalef:sync` thật —
+    145/145 dòng có `scalef_creator_name`/`published_at`. Test hàm `resolveTalentMatch` trên toàn
+    bộ 145 dòng thật: 100 dòng thu hẹp được về đúng 1 Talent (từ 98 trước đây), 22 dòng vẫn còn
+    xung đột thật sự (username hiện có không đủ để thu hẹp — xem danh sách dưới). `npm run build`
+    sạch, đã xem `/scalef` trên browser (role CFO) — hiện đúng gợi ý người đăng + thứ tự candidate.
+  - **⚠ 3 cặp "hashtag trùng" CFO đã biết trước đây — dữ liệu thật cho kết quả KHÁC giả định gốc,
+    CHƯA cần sửa gì trên ScaleF, chỉ cần CFO xác nhận lại:**
+    - `#m2kkthm`: TOÀN BỘ 10 content thật là của **"Phương Nà"** (khớp Talent "Phương") — không có
+      dòng nào của "@capnhatthitruong247". → Không phải xung đột thật, chỉ là "@capnhatthitruong247"
+      chưa có content nào tìm thấy dưới hashtag này.
+    - `#pj1dnf6`: TOÀN BỘ 10 content thật là của **"Thúy Hiền"** — không có dòng nào của
+      "@dodoccrew". → Tương tự, không phải xung đột thật.
+    - `#rqyd1vy`: 2 content của **"Linh Anh"** (không phải Talent nào trong EPS) + 1 content của
+      **"Hong Nhung"** (= Talent "Nhung", hashtag thật của Nhung là `#pdbe23b`, không phải cái
+      này). → **Không dòng nào** thuộc "Ngọc Thư" hay "@tbducc1012". CFO cần xác nhận: "Linh Anh"
+      là ai (Talent chưa đăng ký đúng, hay tài khoản ngoài công ty)?
+  - **Việc CFO nên làm tiếp (không chặn code, tự sửa qua màn Talent có sẵn):** điền
+    `scalef_username` bằng đúng tên ScaleF thật vừa xác nhận, để lần sync sau tự thu hẹp được nhiều
+    hơn:
+    | Talent (hashtag) | Tên thật trên ScaleF | Ghi chú |
+    |---|---|---|
+    | Phương (`#m2kkthm`) | Phương Nà | Khớp 10/10, an toàn để điền |
+    | Thuý Hiền (`#pj1dnf6`) | Thúy Hiền | Khớp 10/10 — chú ý dấu "Thúy" khác "Thuý" đang lưu |
+    | Thuý Thẩm (`#b7hqltd`) | Công chúa tư bản 🧚🏻‍♀️ | Khớp 9/9 — CFO xác nhận đúng là biệt danh ScaleF của Thuý Thẩm trước khi điền |
+    | Thư Ngân (`#hz8xryg`) | Thanh Thảo (28) / Nguyễn Quỳnh Anh (7) | KHÔNG khớp tên đăng ký nào — cần CFO xác nhận trước, chưa nên điền vội |
+    | Ly (`#smtltn4`) | Thanh Thảo (2) / Bé Mèo (2) | Tương tự — cần xác nhận |
+    | @iamm.quynhanhh (`#wqc1utf`) | Nguyễn Quỳnh Anh (39) / Thanh Thảo (2) | Tương tự — cần xác nhận |
+    | @hien_leecutii (`#3xk6daf`) | tuan vy (7) | Không khớp tên/handle đăng ký chút nào — cần xác nhận |
+    Đáng chú ý: "Thanh Thảo" và "Nguyễn Quỳnh Anh" xuất hiện lặp lại ở NHIỀU hashtag đăng ký cho
+    NHIỀU Talent khác nhau (Thư Ngân, Ly, @iamm.quynhanhh) — có thể 2 người này đứng sau nhiều
+    profile Talent trong hệ thống (MCN quản lý nhiều kênh), hoặc dữ liệu hashtag gốc từ Excel Module 1
+    bị sai cho nhóm này. CFO nên xác nhận trước khi điền username hàng loạt.
 - Tiếp theo theo lộ trình: 2 việc bổ sung vẫn đang chờ code (không phụ thuộc Module 6), làm
   trước/sau tùy CFO:
   - "Bổ sung Module 2 — Đồng bộ Ambassador" (thiết kế xong) — tham khảo `src/server/scalef/` (đã

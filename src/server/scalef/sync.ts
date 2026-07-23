@@ -75,7 +75,7 @@ export async function syncScalef(): Promise<SyncResult> {
     // chứa nhiều tag trùng nhau, dù hiếm).
     const activeTalents = await prisma.talent.findMany({
       where: { status: "ACTIVE", scalefHashtag: { not: null } },
-      select: { id: true, scalefHashtag: true },
+      select: { id: true, scalefHashtag: true, scalefUsername: true },
     });
 
     const distinctHashtags = new Set(
@@ -100,23 +100,29 @@ export async function syncScalef(): Promise<SyncResult> {
       const approvedOnScalef = isApprovedOnScalef(item);
 
       const existing = await prisma.scalefVideo.findUnique({ where: { scalefKey: item._id } });
+      const scalefCreatorId = item.createdBy?._id ?? null;
+      const scalefCreatorName = item.createdBy?.name ?? null;
+      const publishedAt = item.publishedAt ? new Date(item.publishedAt) : null;
 
       let scalefVideoId: string;
       if (existing) {
         // KHÔNG đụng videoId khi update — có thể đã ghép tay ở màn /scalef, sync không được ghi đè.
         await prisma.scalefVideo.update({
           where: { id: existing.id },
-          data: { scalefUrl, title, approvedOnScalef, lastSeenAt: now },
+          data: { scalefUrl, title, approvedOnScalef, scalefCreatorId, scalefCreatorName, publishedAt, lastSeenAt: now },
         });
         scalefVideoId = existing.id;
       } else {
-        const videoId = await resolveVideoId(item.title ?? "", activeTalents);
+        const videoId = await resolveVideoId(item, activeTalents);
         const created = await prisma.scalefVideo.create({
           data: {
             scalefKey: item._id,
             scalefUrl,
             title,
             approvedOnScalef,
+            scalefCreatorId,
+            scalefCreatorName,
+            publishedAt,
             firstSeenAt: now,
             lastSeenAt: now,
             videoId,
@@ -157,22 +163,65 @@ export async function syncScalef(): Promise<SyncResult> {
   }
 }
 
-// Chỉ tự gán video_id khi thu hẹp được về ĐÚNG 1 Talent VÀ đúng 1 video ứng viên — mọi trường hợp
-// khác (hashtag trùng nhiều Talent, hoặc Talent khớp nhưng nhiều/không video ứng viên) để trống,
-// xử lý ở màn ghép tay /scalef. Tự phát hiện hashtag trùng bằng query, không hardcode hashtag nào.
-async function resolveVideoId(
-  title: string,
-  activeTalents: { id: string; scalefHashtag: string | null }[],
-): Promise<string | null> {
-  const tags = new Set(extractHashtags(title));
-  if (tags.size === 0) return null;
+// So sánh tên người đăng ScaleF (`createdBy.name`) với `talents.scalef_username` — không phân
+// biệt hoa/thường, bỏ khoảng trắng thừa. Đây là danh tính do chính ScaleF xác định, đáng tin hơn
+// hashtag tự do trong caption (xem ghi chú điều tra trong docs/PROJECT_EPS.md, mục ScaleF matching).
+function normalizeCreatorName(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return value.trim().toLowerCase() || null;
+}
 
-  const matchedTalentIds = new Set(
-    activeTalents.filter((t) => {
-      const normalized = normalizeHashtag(t.scalefHashtag);
-      return normalized && tags.has(normalized);
-    }).map((t) => t.id),
-  );
+export type TalentForScalefMatch = {
+  id: string;
+  scalefHashtag: string | null;
+  scalefUsername: string | null;
+};
+
+// Tìm tập Talent khớp với 1 content ScaleF — dùng chung cho resolveVideoId (tự gán khi sync) VÀ
+// màn ghép tay /scalef (hiển thị gợi ý, tính lại từ dữ liệu đã lưu, không gọi lại API). Tín hiệu
+// nhận diện, theo thứ tự ưu tiên:
+// 1) hashtag trong title khớp ĐÚNG 1 Talent → dùng luôn (đường cũ, đa số trường hợp).
+// 2) hashtag khớp NHIỀU Talent (xung đột) → thử thu hẹp về đúng 1 người bằng cách so
+//    `createdBy.name` (ScaleF tự xác định) với `scalef_username` của từng người trong nhóm xung đột.
+// 3) hashtag không khớp Talent nào (thiếu/sai hashtag trong caption) → thử khớp thẳng
+//    `createdBy.name` với `scalef_username` trên toàn bộ Talent đang active.
+export function resolveTalentMatch<T extends TalentForScalefMatch>(
+  title: string | null | undefined,
+  creatorNameRaw: string | null | undefined,
+  activeTalents: T[],
+): { matchedTalentIds: Set<string>; hashtagMatches: T[] } {
+  const tags = new Set(extractHashtags(title));
+  const creatorName = normalizeCreatorName(creatorNameRaw);
+
+  const hashtagMatches = activeTalents.filter((t) => {
+    const normalized = normalizeHashtag(t.scalefHashtag);
+    return normalized && tags.has(normalized);
+  });
+
+  let matchedTalentIds: Set<string>;
+  if (hashtagMatches.length > 1 && creatorName) {
+    const byCreatorName = hashtagMatches.filter((t) => normalizeCreatorName(t.scalefUsername) === creatorName);
+    matchedTalentIds = new Set((byCreatorName.length === 1 ? byCreatorName : hashtagMatches).map((t) => t.id));
+  } else {
+    matchedTalentIds = new Set(hashtagMatches.map((t) => t.id));
+  }
+
+  if (matchedTalentIds.size === 0 && creatorName) {
+    const byCreatorName = activeTalents.filter((t) => normalizeCreatorName(t.scalefUsername) === creatorName);
+    matchedTalentIds = new Set(byCreatorName.map((t) => t.id));
+  }
+
+  return { matchedTalentIds, hashtagMatches };
+}
+
+// Chỉ tự gán video_id khi thu hẹp được về ĐÚNG 1 Talent (xem resolveTalentMatch) VÀ đúng 1 video
+// ứng viên — mọi trường hợp khác để trống, xử lý ở màn ghép tay /scalef. Tự phát hiện hashtag
+// trùng bằng query, không hardcode hashtag nào.
+async function resolveVideoId(
+  item: ScalefContentItem,
+  activeTalents: TalentForScalefMatch[],
+): Promise<string | null> {
+  const { matchedTalentIds } = resolveTalentMatch(item.title, item.createdBy?.name, activeTalents);
   if (matchedTalentIds.size !== 1) return null;
   const [talentId] = [...matchedTalentIds];
 

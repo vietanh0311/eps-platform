@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireSystemAdmin } from "@/lib/authz";
 import { syncScalefNow, matchScalefVideo, unmatchScalefVideo } from "@/server/actions/scalef";
-import { extractHashtags, normalizeHashtag } from "@/server/scalef/sync";
+import { resolveTalentMatch } from "@/server/scalef/sync";
 import { SCRAPE_RUN_STATUS_LABELS, formatDate, formatDateTime, formatVnd } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,22 +32,27 @@ export default async function ScalefPage({
     }),
     prisma.talent.findMany({
       where: { status: "ACTIVE", scalefHashtag: { not: null } },
-      select: { id: true, fullName: true, scalefHashtag: true, manager: { select: { fullName: true } } },
+      select: {
+        id: true,
+        fullName: true,
+        scalefHashtag: true,
+        scalefUsername: true,
+        manager: { select: { fullName: true } },
+      },
     }),
   ]);
 
-  // Với mỗi hàng chưa khớp, tính lại candidate/xung đột từ title đã lưu — không gọi lại API ScaleF.
+  // Với mỗi hàng chưa khớp, tính lại candidate/xung đột từ title + tên người đăng ScaleF đã lưu —
+  // không gọi lại API ScaleF. resolveTalentMatch dùng chung logic với sync.ts (hashtag, thu hẹp
+  // xung đột bằng scalef_username khớp createdBy.name — xem docs/PROJECT_EPS.md mục ScaleF matching).
   const rows = await Promise.all(
     unmatched.map(async (sv) => {
-      const tags = new Set(extractHashtags(sv.title));
-      const matchedTalents = activeTalents.filter((t) => {
-        const normalized = normalizeHashtag(t.scalefHashtag);
-        return normalized && tags.has(normalized);
-      });
+      const { matchedTalentIds, hashtagMatches } = resolveTalentMatch(sv.title, sv.scalefCreatorName, activeTalents);
+      const matchedTalents = activeTalents.filter((t) => matchedTalentIds.has(t.id));
 
       let candidates: { id: string; videoUrl: string; airDate: Date }[] = [];
       if (matchedTalents.length === 1) {
-        candidates = await prisma.video.findMany({
+        const found = await prisma.video.findMany({
           where: {
             talentId: matchedTalents[0].id,
             scalefSubmittedAt: { not: null },
@@ -56,9 +61,17 @@ export default async function ScalefPage({
           select: { id: true, videoUrl: true, airDate: true },
           orderBy: { airDate: "desc" },
         });
+        // Gợi ý video gần ngày đăng ScaleF thật nhất lên đầu — vẫn phải chọn tay, chỉ giúp nhanh hơn.
+        candidates = sv.publishedAt
+          ? [...found].sort(
+              (a, b) =>
+                Math.abs(a.airDate.getTime() - sv.publishedAt!.getTime()) -
+                Math.abs(b.airDate.getTime() - sv.publishedAt!.getTime()),
+            )
+          : found;
       }
 
-      return { sv, matchedTalents, candidates };
+      return { sv, matchedTalents, hashtagConflict: hashtagMatches.length > 1, candidates };
     }),
   );
 
@@ -163,8 +176,11 @@ export default async function ScalefPage({
                   </TableCell>
                 </TableRow>
               ) : (
-                rows.map(({ sv, matchedTalents, candidates }) => {
+                rows.map(({ sv, matchedTalents, hashtagConflict, candidates }) => {
                   const latestStat = sv.dailyStats[0];
+                  const creatorHint = sv.scalefCreatorName ? (
+                    <div className="text-muted-foreground">ScaleF ghi nhận người đăng: {sv.scalefCreatorName}</div>
+                  ) : null;
                   return (
                     <TableRow key={sv.id}>
                       <TableCell className="w-72 max-w-72 text-sm">
@@ -183,9 +199,11 @@ export default async function ScalefPage({
                           ? `${latestStat.views.toLocaleString("vi-VN")} view · ${formatVnd(latestStat.rewardAmount)} (${formatDate(latestStat.statDate)})`
                           : "—"}
                       </TableCell>
-                      <TableCell className="w-80 max-w-80 text-xs">
+                      <TableCell className="w-80 max-w-80 text-xs space-y-1">
                         {matchedTalents.length === 0 ? (
-                          <span className="text-muted-foreground">Không nhận diện được hashtag nào</span>
+                          <span className="text-muted-foreground">
+                            Không nhận diện được hashtag hoặc username nào khớp
+                          </span>
                         ) : matchedTalents.length > 1 ? (
                           <span className="text-amber-700">
                             Hashtag thuộc {matchedTalents.length} người:{" "}
@@ -196,15 +214,18 @@ export default async function ScalefPage({
                           </span>
                         ) : candidates.length === 0 ? (
                           <span className="text-muted-foreground">
-                            Khớp Talent {matchedTalents[0].fullName} nhưng chưa có video nào đã nộp
-                            ScaleF để chọn
+                            Khớp Talent {matchedTalents[0].fullName}
+                            {hashtagConflict ? " (thu hẹp qua username ScaleF)" : ""} nhưng chưa có
+                            video nào đã nộp ScaleF để chọn
                           </span>
                         ) : (
                           <span>
-                            Khớp Talent <strong>{matchedTalents[0].fullName}</strong> —{" "}
+                            Khớp Talent <strong>{matchedTalents[0].fullName}</strong>
+                            {hashtagConflict ? " (thu hẹp qua username ScaleF)" : ""} —{" "}
                             {candidates.length} video ứng viên
                           </span>
                         )}
+                        {creatorHint}
                       </TableCell>
                       <TableCell className="w-64 text-right">
                         {candidates.length > 0 ? (
