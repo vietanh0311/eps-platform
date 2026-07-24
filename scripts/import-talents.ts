@@ -20,9 +20,9 @@ import * as XLSX from "xlsx";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
 import type { Platform } from "../src/generated/prisma/enums";
+import { randomPassword } from "./lib/random-password";
 
 const SHEET = "Quản lý kênh + mẫu";
-const DEFAULT_MM_PASSWORD = "doimatkhau123";
 
 const COL = {
   tiktok: "Link Tiktok",
@@ -96,7 +96,7 @@ async function main() {
   if (missingManagers.length) {
     console.log(`MM chưa có tài khoản: ${missingManagers.join(", ")}`);
     if (write) {
-      const pw = await hash(DEFAULT_MM_PASSWORD, 12);
+      const createdMMs: { email: string; password: string }[] = [];
       for (const name of missingManagers) {
         const email = `${name
           .toLowerCase()
@@ -104,11 +104,16 @@ async function main() {
           .replace(/[̀-ͯ]/g, "")
           .replace(/đ/g, "d")
           .replace(/[^a-z0-9]/g, "")}.mm@eps.local`;
+        const password = randomPassword();
         const u = await prisma.user.create({
-          data: { email, fullName: `MM ${name}`, role: "MM", passwordHash: pw },
+          data: { email, fullName: `MM ${name}`, role: "MM", passwordHash: await hash(password, 12) },
         });
         mmByName.set(name, u);
-        console.log(`  + Tạo tài khoản MM: ${u.fullName} <${email}> (mật khẩu: ${DEFAULT_MM_PASSWORD})`);
+        createdMMs.push({ email, password });
+      }
+      console.log(`  + Đã tạo ${createdMMs.length} tài khoản MM mới — gửi riêng từng người:`);
+      for (const { email, password } of createdMMs) {
+        console.log(`      ${email}  /  ${password}`);
       }
     } else {
       console.log("  (sẽ được tạo khi chạy --write)\n");
