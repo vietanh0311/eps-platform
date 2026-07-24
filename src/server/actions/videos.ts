@@ -250,6 +250,7 @@ export async function deleteVideo(videoId: string) {
   const video = await loadVideoForAction(videoId);
   if (!video) redirect("/videos");
   if (!canReviewVideo(user, video.talent.managerId)) redirect("/videos");
+  await assertNotLocked(user, video.airDate, `/videos/${videoId}`);
 
   await prisma.video.delete({ where: { id: videoId } });
   await logAudit({

@@ -12,10 +12,12 @@ import { isSystemAdmin } from "@/lib/roles";
 import {
   bulkSetProductionCost,
   confirmScalefSubmission,
+  deleteVideo,
   submitToScalef,
   undoConfirmScalef,
   undoSubmitToScalef,
 } from "@/server/actions/videos";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import {
   PIPELINE_STATUS_LABELS,
   PLATFORM_LABELS,
@@ -519,6 +521,18 @@ function VideoScalefActions({
           <Button type="submit" size="sm" variant="ghost">
             Bỏ xác nhận
           </Button>
+        </form>
+      ) : null}
+      {canReviewVideo(user, video.talent.managerId) ? (
+        <form action={deleteVideo.bind(null, video.id)}>
+          <ConfirmSubmitButton
+            size="sm"
+            variant="ghost"
+            className="text-destructive"
+            confirmMessage="Xoá vĩnh viễn video này? Hành động này không thể hoàn tác."
+          >
+            Xoá
+          </ConfirmSubmitButton>
         </form>
       ) : null}
     </div>

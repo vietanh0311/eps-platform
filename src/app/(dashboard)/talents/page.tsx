@@ -19,10 +19,10 @@ import type { Prisma, TalentStatus } from "@/generated/prisma/client";
 export default async function TalentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; status?: string; manager?: string }>;
+  searchParams: Promise<{ q?: string; status?: string; manager?: string; deleted?: string }>;
 }) {
   const user = await requireUser();
-  const { q, status, manager } = await searchParams;
+  const { q, status, manager, deleted } = await searchParams;
 
   const where: Prisma.TalentWhereInput = { ...talentScopeWhere(user) };
   if (status && status in TALENT_STATUS_LABELS) where.status = status as TalentStatus;
@@ -62,6 +62,12 @@ export default async function TalentsPage({
           </Button>
         ) : null}
       </div>
+
+      {deleted ? (
+        <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
+          Đã xoá Talent.
+        </p>
+      ) : null}
 
       <form className="flex flex-wrap items-end gap-3" method="GET">
         <div className="grid gap-1">

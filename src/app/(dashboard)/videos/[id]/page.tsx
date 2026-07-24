@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import type { PipelineStatus } from "@/generated/prisma/enums";
 
 // Bước cuối SENT_SCALEF đi qua nút "Nộp lên ScaleF" riêng để luôn ghi kèm ai/lúc nào đã nộp.
@@ -340,9 +341,14 @@ export default async function VideoDetailPage({
 
       {editable ? (
         <form action={deleteVideo.bind(null, video.id)}>
-          <Button type="submit" variant="ghost" size="sm" className="text-destructive">
+          <ConfirmSubmitButton
+            variant="ghost"
+            size="sm"
+            className="text-destructive"
+            confirmMessage="Xoá vĩnh viễn video này? Hành động này không thể hoàn tác."
+          >
             Xóa video này
-          </Button>
+          </ConfirmSubmitButton>
         </form>
       ) : null}
     </div>
