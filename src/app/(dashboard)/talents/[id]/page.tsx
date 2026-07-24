@@ -2,13 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { canEditTalent, requireUser, talentScopeWhere } from "@/lib/authz";
-import { addChannel, deleteChannel, updateTalent } from "@/server/actions/talents";
+import { addChannel, deleteChannel, deleteTalent, updateTalent } from "@/server/actions/talents";
 import {
   createAffiliateLinkForTalent,
   toggleAffiliateLink,
   updateAffiliateLinkTarget,
 } from "@/server/actions/affiliate-links";
 import { TalentForm } from "@/components/talent-form";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { PLATFORM_LABELS, TALENT_STATUS_LABELS, formatVnd } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,9 +39,19 @@ export default async function TalentDetailPage({
   // MM chỉ xem được Talent của mình (scope áp cả ở màn chi tiết)
   const talent = await prisma.talent.findFirst({
     where: { id, ...talentScopeWhere(user) },
-    include: { manager: true, channels: { orderBy: { createdAt: "asc" } } },
+    include: {
+      manager: true,
+      channels: { orderBy: { createdAt: "asc" } },
+      _count: { select: { videos: true, assignments: true, payrollItems: true, bookingDeals: true } },
+    },
   });
   if (!talent) notFound();
+
+  const hasActivity =
+    talent._count.videos > 0 ||
+    talent._count.assignments > 0 ||
+    talent._count.payrollItems > 0 ||
+    talent._count.bookingDeals > 0;
 
   const editable = canEditTalent(user, talent.managerId);
   const affiliateLink = await prisma.affiliateLink.findFirst({
@@ -297,6 +308,32 @@ export default async function TalentDetailPage({
           <p className="text-sm text-muted-foreground">Chưa có link affiliate</p>
         )}
       </section>
+
+      {editable ? (
+        <>
+          <Separator />
+          <section className="space-y-2">
+            <h2 className="text-lg font-medium">Xoá Talent</h2>
+            {hasActivity ? (
+              <p className="max-w-xl text-sm text-muted-foreground">
+                Talent này đã có video/campaign/lương liên quan nên không xoá được — đổi{" "}
+                <strong>Trạng thái</strong> sang &quot;Dừng&quot; ở form phía trên nếu muốn ngừng
+                hoạt động.
+              </p>
+            ) : (
+              <form action={deleteTalent.bind(null, talent.id)}>
+                <ConfirmSubmitButton
+                  variant="destructive"
+                  size="sm"
+                  confirmMessage={`Xoá vĩnh viễn Talent "${talent.fullName}"? Hành động này không thể hoàn tác.`}
+                >
+                  Xoá Talent
+                </ConfirmSubmitButton>
+              </form>
+            )}
+          </section>
+        </>
+      ) : null}
     </div>
   );
 }

@@ -117,6 +117,44 @@ const channelSchema = z.object({
   isPrimary: z.coerce.boolean().optional(),
 });
 
+// Xoá Talent xoá CASCADE cả kênh social lẫn link affiliate (+ click/conversion) của Talent đó —
+// chấp nhận được vì là dữ liệu phụ thuộc riêng Talent. Nhưng video/campaign/lương là dữ liệu
+// nghiệp vụ thật (video cascade xoá theo schema, payroll/booking có thể bị mồ côi) nên CHẶN xoá
+// nếu còn — đổi trạng thái sang "Dừng" thay vì xoá nếu Talent đã có hoạt động.
+export async function deleteTalent(talentId: string) {
+  const user = await requireRole("CFO", "TECH", "MM");
+  const talent = await prisma.talent.findUnique({
+    where: { id: talentId },
+    include: {
+      _count: {
+        select: { videos: true, assignments: true, payrollItems: true, bookingDeals: true },
+      },
+    },
+  });
+  if (!talent) redirect("/talents");
+  if (!canEditTalent(user, talent.managerId)) redirect("/talents");
+
+  const { videos, assignments, payrollItems, bookingDeals } = talent._count;
+  if (videos > 0 || assignments > 0 || payrollItems > 0 || bookingDeals > 0) {
+    redirect(
+      `/talents/${talentId}?error=${encodeURIComponent(
+        "Không xoá được: Talent đã có video/campaign/lương liên quan. Đổi trạng thái sang \"Dừng\" thay vì xoá, hoặc xoá hết dữ liệu liên quan trước.",
+      )}`,
+    );
+  }
+
+  await prisma.talent.delete({ where: { id: talentId } });
+  await logAudit({
+    userId: user.id,
+    action: "DELETE",
+    entity: "talents",
+    entityId: talentId,
+    detail: `Xóa Talent ${talent.fullName}`,
+  });
+  revalidatePath("/talents");
+  redirect("/talents?deleted=1");
+}
+
 export async function addChannel(talentId: string, formData: FormData) {
   const user = await requireRole("CFO", "TECH", "MM");
   const talent = await prisma.talent.findUnique({ where: { id: talentId } });
