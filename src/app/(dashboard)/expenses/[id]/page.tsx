@@ -18,7 +18,11 @@ export default async function EditExpensePage({
 
   const [expense, campaigns] = await Promise.all([
     prisma.expense.findUnique({ where: { id }, include: { video: { select: { videoUrl: true } } } }),
-    prisma.campaign.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.campaign.findMany({
+      where: { mergedIntoId: null },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
   if (!expense) notFound();
 

@@ -30,7 +30,11 @@ export default async function ExpensesPage({
       orderBy: { incurredAt: "desc" },
       take: 200,
     }),
-    prisma.campaign.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.campaign.findMany({
+      where: { mergedIntoId: null },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
 
   return (

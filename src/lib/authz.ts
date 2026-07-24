@@ -46,18 +46,18 @@ export function canEditTalent(user: SessionUser, talentManagerId: string): boole
 
 // ===== Module 2 — Campaign & Log video =====
 
-// Campaign: Team Tech/Team Finance thấy tất cả. MM thấy campaign mình phụ trách, campaign mà
-// Talent của mình có video trong đó (campaign nhập từ log video là cấp nhãn hàng, dùng chung
-// nhiều MM), VÀ campaign đồng bộ Ambassador chưa ai nhận (mmId null — phải thấy được mới "Nhận"
-// được, xem canClaimCampaign). Xem được không có nghĩa là sửa được: sửa/giao Talent vẫn phải qua
-// canEditCampaign.
+// Campaign: Team Tech/Team Finance thấy tất cả. MM thấy campaign mình đang đồng phụ trách,
+// campaign mà Talent của mình có video trong đó (campaign nhập từ log video là cấp nhãn hàng,
+// dùng chung nhiều MM), VÀ campaign đồng bộ Ambassador chưa ai nhận (0 manager — phải thấy được
+// mới "Cùng quản lý" được, xem canJoinCampaignManager). Xem được không có nghĩa là sửa được:
+// sửa/giao Talent vẫn phải qua canEditCampaign.
 export function campaignScopeWhere(user: SessionUser) {
   return user.role === "MM"
     ? {
         OR: [
-          { mmId: user.id },
+          { managers: { some: { userId: user.id } } },
           { videos: { some: { talent: { managerId: user.id } } } },
-          { mmId: null },
+          { managers: { none: {} } },
         ],
       }
     : {};
@@ -68,21 +68,44 @@ export function videoScopeWhere(user: SessionUser) {
   return user.role === "MM" ? { talent: { managerId: user.id } } : {};
 }
 
-// Team Tech/Team Finance và MM phụ trách campaign được sửa brief / giao Talent — quyền ngang nhau
-// giữa hai nhóm quản trị, MM vẫn giới hạn đúng campaign mình phụ trách.
-// campaignMmId null = campaign đồng bộ từ Ambassador chưa ai nhận — chỉ system admin sửa được cho
-// tới khi có MM "Nhận" (set mmId), MM khác chưa được sửa dù nhìn thấy nó qua campaignScopeWhere.
-export function canEditCampaign(user: SessionUser, campaignMmId: string | null): boolean {
+// Team Tech/Team Finance và MM đang đồng phụ trách campaign được sửa brief / giao Talent — quyền
+// ngang nhau giữa hai nhóm quản trị, MM vẫn giới hạn đúng những campaign mình có tên (Vấn đề 2:
+// campaign hỗ trợ NHIỀU MM cùng lúc — xem model CampaignManager, không còn 1 mmId duy nhất).
+// managerUserIds rỗng = campaign đồng bộ từ Ambassador chưa ai nhận — chỉ system admin sửa được
+// cho tới khi có MM "Cùng quản lý" (join), MM khác chưa được sửa dù nhìn thấy nó qua
+// campaignScopeWhere. mergedIntoId khác null = campaign đã gộp vào campaign khác (Vấn đề 3,
+// /campaigns/matching) — chỉ đọc với MỌI người kể cả system admin, sửa tiếp phải qua campaign đích.
+export function canEditCampaign(
+  user: SessionUser,
+  managerUserIds: string[],
+  mergedIntoId?: string | null,
+): boolean {
+  if (mergedIntoId) return false;
   if (isSystemAdmin(user.role)) return true;
-  if (user.role === "MM") return campaignMmId !== null && user.id === campaignMmId;
+  if (user.role === "MM") return managerUserIds.includes(user.id);
   return false;
 }
 
-// Campaign đồng bộ từ Ambassador chưa ai nhận (mmId null) — MM tự nhận, hoặc system admin nhận
-// thay (chọn MM bất kỳ). Campaign đã có mmId thì không "nhận" được nữa, chỉ sửa qua canEditCampaign.
-export function canClaimCampaign(user: SessionUser, campaign: { mmId: string | null }): boolean {
-  if (campaign.mmId !== null) return false;
-  return isSystemAdmin(user.role) || user.role === "MM";
+// Vấn đề 2 — thêm 1 MM vào danh sách đồng phụ trách campaign. MM chỉ tự thêm CHÍNH MÌNH (tự phục
+// vụ, giống "Nhận" cũ, không cần CFO duyệt — CFO xác nhận qua Plan Mode). System admin thêm được
+// bất kỳ MM nào (thay MM khác, hoặc bổ sung người thứ 2 trở lên). Không giới hạn số MM/campaign,
+// không cần campaign đang "chưa ai nhận" mới thêm được — 2+ MM cùng phụ trách là trạng thái hợp lệ.
+// Campaign đã gộp (mergedIntoId) không thêm được nữa — đã retired.
+export function canJoinCampaignManager(
+  user: SessionUser,
+  targetUserId: string,
+  campaign: { mergedIntoId?: string | null },
+): boolean {
+  if (campaign.mergedIntoId) return false;
+  if (isSystemAdmin(user.role)) return true;
+  if (user.role === "MM") return targetUserId === user.id;
+  return false;
+}
+
+// Gỡ 1 MM khỏi danh sách đồng phụ trách — CHỈ system admin (CFO xác nhận qua Plan Mode: việc nhạy
+// cảm hơn tự thêm, tránh 1 MM tự ý gỡ MM khác).
+export function canRemoveCampaignManager(user: SessionUser): boolean {
+  return isSystemAdmin(user.role);
 }
 
 // MM log video thay cho Talent mình quản lý (Talent không có tài khoản đăng nhập). Team

@@ -472,7 +472,7 @@ async function main() {
         name: tag,
         brandName: tag,
         source: classifySource(tag),
-        mmId: firstRow.managerId,
+        managers: { create: { userId: firstRow.managerId } },
         status: "RUNNING",
         brief,
       },

@@ -71,7 +71,10 @@ export default async function VideoDetailPage({
 
   const campaigns = editable
     ? await prisma.campaign.findMany({
-        where: user.role === "MM" ? { mmId: user.id } : {},
+        where:
+          user.role === "MM"
+            ? { managers: { some: { userId: user.id } }, mergedIntoId: null }
+            : { mergedIntoId: null },
         select: { id: true, name: true },
         orderBy: { name: "asc" },
       })

@@ -564,6 +564,163 @@ Rủi ro đã chấp nhận:
     chứng chỉ SSL hợp lệ (`SSL certificate verify ok`, Let's Encrypt).
 - Bộ prompt sẵn cho từng module (CFO copy vào chat mới, mỗi module 1 chat): `docs/MODULE_PROMPTS.md`.
 - File gốc `PROJECT_EPS.txt` (bị lỗi encoding) đã được thay bằng file này; có thể xóa file cũ.
+- **2026-07-24 — Vấn đề 3: Màn duyệt tay campaign MANUAL ↔ AMBASSADOR nghi ngờ trùng (HOÀN
+  THÀNH).** Phần đầu trong chuỗi 3 vấn đề CFO yêu cầu mở rộng module Campaign (thứ tự làm: Vấn đề
+  3 dữ liệu sạch → Vấn đề 2 schema 2 MM → Vấn đề 1 cào chính sách thưởng ScaleF, mỗi phần Plan Mode
+  riêng). Trước khi code đã điều tra lại bằng DB thật (không tin theo docs cũ): 13 campaign
+  `MANUAL` (nhóm thô theo brand, import lịch sử 7/2026) vs 24 `AMBASSADOR` (auto-sync) — dò trùng
+  theo `brand_name` (chứa lẫn nhau, không phân biệt hoa/thường) ra đúng 7 cặp nghi ngờ thật:
+  Katinat×3 (1 brand có 3 đợt Ambassador chạy song song — đúng lý do 2026-07-22 CFO từng quyết định
+  KHÔNG tự động khớp), HDBank, VPBank, Aristino, Tiki.
+  - **Giữ nguyên quyết định cũ** (không tự động khớp/gộp — đã chứng minh bằng dữ liệu thật trước
+    đây là sai, xem nhóm 3 dưới), CFO xác nhận qua Plan Mode chỉ cần **thêm màn duyệt tay** —
+    người dùng tự xem từng cặp và bấm Bỏ qua/Gộp, hệ thống không tự suy đoán.
+  - **Phát hiện quan trọng ảnh hưởng thiết kế**: 3/7 cặp (HDBank, VPBank, Tiki) có video nằm trong
+    kỳ lương **2026-06 đã PAID**, và các campaign MANUAL này đã có `pricePerView` thật trong khi
+    AMBASSADOR tương ứng chưa có gì (`mmId` null, chưa ai nhận) — nên khi gộp phải mang theo cơ
+    chế giá + cảnh báo rõ động tới lương đã chốt.
+  - **Schema mới**: `Campaign.mergedIntoId` (self-relation, nullable) — `null` = hoạt động bình
+    thường, có giá trị = đã gộp, chỉ đọc, ẩn khỏi mọi nơi chọn campaign đang hoạt động. Không xóa
+    campaign (giữ nguyên nguyên tắc "không bao giờ xóa" đã áp dụng cho Ambassador sync).
+  - **`src/server/campaigns/matching.ts`** (mới): `findMatchCandidates()` — hàm thuần, tính
+    real-time mỗi lần tải trang (dữ liệu nhỏ, không cần cache), lọc bỏ cặp đã "Bỏ qua" bằng cách
+    đọc lại `audit_logs` (action=`DISMISS`, entity=`campaign_match`, entityId=`"<manualId>:<ambassadorId>"`
+    — tái dùng bảng audit sẵn có thay vì thêm bảng mới cho vài chục dòng), kèm cảnh báo tháng lương
+    đã khóa (dùng lại `isMonthLocked`/`monthKeyOf` từ `payroll/compute.ts`).
+  - **2 action mới trong `src/server/actions/campaigns.ts`** (`requireSystemAdmin` — cùng mức
+    quyền đặt cơ chế giá campaign): `dismissCampaignMatch` (ghi audit, không đụng dữ liệu) và
+    `mergeCampaign` (transaction đầu tiên trong codebase — `prisma.$transaction`, cần vì đụng
+    nhiều bảng cùng lúc: chuyển `CampaignAssignment`/`Video`/`Expense` từ MANUAL sang AMBASSADOR,
+    dedupe assignment trùng talent ở cả 2 bên trước khi update, copy `pricePerView`/
+    `fixedCostPerView`/`costCeilingPct` sang đích CHỈ KHI đích đang trống — không ghi đè, tùy chọn
+    mang `mmId` cũ sang nếu đích chưa có ai nhận, đánh dấu MANUAL `mergedIntoId`).
+  - **`canEditCampaign`/`canClaimCampaign`** (`src/lib/authz.ts`) thêm tham số `mergedIntoId` —
+    campaign đã gộp không sửa/nhận được nữa với BẤT KỲ ai kể cả system admin, chỉ đọc.
+  - **UI**: `/campaigns/matching` (route mới, system admin only) — mỗi cặp hiện đủ thông tin 2
+    bên (MM, số video/Talent, cảnh báo kỳ lương khóa, đã có cơ chế giá chưa) + nút Bỏ qua/Gộp.
+    `/campaigns` thêm badge "N cặp nghi ngờ trùng cần duyệt" (system admin), mặc định ẩn campaign
+    đã gộp (toggle "Xem cả campaign đã gộp"), badge "Đã gộp" trong cột Nguồn. Trang chi tiết
+    campaign đã gộp hiện banner link sang campaign đích, ẩn toàn bộ form sửa. Dropdown chọn
+    campaign ở `/videos/new`, `/videos/[id]`, `/expenses`, `/expenses/[id]` loại campaign đã gộp;
+    `createVideos`/`updateVideo` chặn thêm ở server nếu vẫn cố gán (phòng request thủ công).
+  - **Verify thật trên browser** (session CFO có sẵn, không cần reset mật khẩu — đổi mật khẩu tài
+    khoản trực tiếp qua DB bị chính sandbox chặn, đúng thiết kế bảo mật): vào `/campaigns/matching`
+    thấy đúng 7 cặp thật; bấm "Bỏ qua" 1 cặp Katinat → biến mất, tải lại trang vẫn không quay lại
+    (audit dismissal có hiệu lực); bấm "Gộp" cặp Aristino (không đụng payroll đã PAID) → redirect
+    đúng sang campaign Ambassador đích kèm banner thành công, 31 video chuyển đúng, MM Giang được
+    mang sang (carry-over vì đích chưa ai nhận), campaign MANUAL cũ hiện banner "đã gộp — chỉ đọc"
+    và 0 video/Talent còn lại. **Đã dọn dữ liệu test sau verify** (revert video/mergedIntoId/mmId
+    về đúng trạng thái trước khi test qua SQL trong transaction, xóa 2 dòng audit_logs test) — DB
+    thật quay lại đúng 322 video/38 campaign như trước khi verify, xác nhận lại `/campaigns/matching`
+    hiện đủ 7 cặp gốc. `npm run build` sạch (`npx prisma migrate dev` chạy 1 migration
+    `campaign_merge_matching`, sạch).
+  - **Chưa làm, ngoài phạm vi phần này** (để dành phần khác): ScaleF video-Talent matching
+    (0/145 chưa ghép, việc vận hành tự làm ở `/scalef` có sẵn) và liên kết `ScalefEvent`↔`Campaign`
+    (chưa tồn tại — để dành Vấn đề 1, cần cho việc cào chính sách thưởng ScaleF theo campaign).
+  - **Tiếp theo**: Vấn đề 2 (Campaign hỗ trợ 2 MM cùng chạy — đổi schema 1-1 sang nhiều-nhiều),
+    rồi Vấn đề 1 (cào chính sách thưởng campaign từ ScaleF, đề xuất cơ chế thưởng MM cho CFO duyệt).
+- **2026-07-24 — Vấn đề 2: Campaign hỗ trợ NHIỀU MM cùng phụ trách (HOÀN THÀNH).** Phần thứ 2
+  trong chuỗi 3 vấn đề mở rộng module Campaign.
+  - **Phát hiện quan trọng trước khi code** (đọc kỹ `src/server/payroll/compute.ts`): công thức
+    hoa hồng MM tính RIÊNG theo `talent.manager_id` (Talent của ai) trong từng campaign — **hoàn
+    toàn KHÔNG dùng `campaigns.mm_id`** để tính tiền, cột đó chỉ dùng để phân quyền sửa brief/giao
+    Talent. Xác nhận bằng SQL thật: **10/13 campaign lúc đó đã có video của cả 2 MM active** (Giang,
+    Hà) — "2 MM cùng chạy 1 campaign" thực ra đã xảy ra trong dữ liệu thật từ trước, chỉ chưa ai
+    được ghi nhận chính thức. CFO xác nhận qua Plan Mode: **giữ nguyên công thức lương, không thêm
+    logic chia thưởng nào** — đây là phần lo ngại nhất nhưng hóa ra không cần code thêm gì.
+  - **Schema**: xóa `Campaign.mmId` (1 FK nullable duy nhất), thêm bảng `campaign_managers`
+    (nhiều-nhiều Campaign↔User, không giới hạn số MM). Migration
+    `20260724090000_campaign_many_mm` viết tay (không dùng `prisma migrate dev` vì cảnh báo mất dữ
+    liệu chặn chế độ non-interactive) — chèn 1 câu `INSERT ... SELECT` copy toàn bộ `mm_id` cũ
+    sang `campaign_managers` NGAY TRONG migration, trước khi drop cột, để chạy `prisma migrate
+    deploy` trên production (Dockerfile `CMD`) không mất dữ liệu. Verify: đúng 14/14 campaign có
+    `mm_id` cũ có đúng 1 dòng tương ứng sau migrate.
+  - **Quyền**: MM tự do "Cùng quản lý" (tự phục vụ, không cần CFO duyệt — giống "Nhận" cũ, CFO xác
+    nhận qua Plan Mode); **gỡ 1 MM khỏi campaign chỉ system admin làm được** (việc nhạy cảm hơn).
+    `src/lib/authz.ts`: `canEditCampaign` nhận mảng `managerUserIds` thay vì 1 giá trị;
+    `canClaimCampaign` đổi thành `canJoinCampaignManager` (bỏ điều kiện "campaign phải đang
+    trống"); thêm `canRemoveCampaignManager`.
+  - **`src/server/actions/campaigns.ts`**: `createCampaign` vẫn yêu cầu 1 MM khởi tạo (form không
+    đổi); `updateCampaign` không còn đụng gì tới MM (tách hẳn khỏi form sửa chung, tránh lẫn quyền
+    "sửa brief" của MM đang phụ trách với quyền "gỡ MM" chỉ system admin có). Thay `claimCampaign`
+    bằng `joinCampaignManager` + thêm `removeCampaignManager`. **`mergeCampaign` (Vấn đề 3) cập
+    nhật theo model mới**: bỏ hẳn checkbox "mang MM cũ sang" — giờ LUÔN mang toàn bộ MM đồng phụ
+    trách từ nguồn sang đích bằng `createMany({ skipDuplicates: true })` (union, an toàn tuyệt đối
+    vì chỉ cộng thêm, không còn rủi ro ghi đè như field đơn trước đây).
+  - **UI**: mục "MM phụ trách" riêng trên `/campaigns/[id]` (tách khỏi `CampaignForm` — bảng liệt
+    kê MM hiện tại + nút "Gỡ" chỉ system admin thấy, nút "Cùng quản lý campaign này" tự phục vụ
+    cho MM chưa có tên, `<select>` thêm MM bất kỳ cho system admin). `/campaigns` list: cột MM nối
+    tên bằng dấu phẩy, filter "của tôi"/"chưa nhận"/dropdown MM đổi qua `some`/`none` quan hệ.
+  - **Verify thật trên browser** (session CFO có sẵn): thêm MM Hà vào campaign HDBank (vốn chỉ có
+    Giang) qua "Thêm MM khác" → cả 2 tên xuất hiện đúng, dropdown tự loại người đã có; bấm "Gỡ" MM
+    Hà → biến mất đúng, quay lại dropdown. Chạy thật `computePayrollDraft("2026-03")` (tháng
+    HDBank có video CẢ 2 MM: Giang 15 video, Hà 5 video) → xác nhận **2 dòng payroll RIÊNG**: Giang
+    2.359.200đ (15 video), Hà 786.400đ (5 video) — đúng tỷ lệ video, không cộng gộp/trùng lặp, xác
+    nhận phát hiện ban đầu là đúng. Test transaction gộp (Vấn đề 3) với MM khác nhau ở 2 bên → xác
+    nhận union đúng (2 MM, không trùng). **Đã dọn dữ liệu test sau verify** (revert
+    `campaign_managers`/audit_logs qua SQL) — DB quay lại đúng 322 video/38 campaign/14
+    campaign_managers như trước khi verify. `npm run build` sạch.
+  - **Tiếp theo**: Vấn đề 1 (đồng bộ chính sách thưởng campaign từ ScaleF, đề xuất cơ chế thưởng
+    MM cho CFO xem/sửa/duyệt trước khi áp dụng vào tính lương).
+- **2026-07-24 — Vấn đề 1: Cào chính sách thưởng ScaleF, đề xuất cơ chế thưởng MM (HOÀN THÀNH).**
+  Phần cuối trong chuỗi 3 vấn đề mở rộng module Campaign (3→2→1) — CFO xác nhận cả 3 phần xong.
+  - **Phát hiện quan trọng trước khi code: KHÔNG cần cào gì thêm.** Module 4 (2026-07-22) đã âm
+    thầm thu thập sẵn toàn bộ dữ liệu cần — `GET /events` (hàm `fetchAllScalefEvents()` có sẵn,
+    chạy mỗi lần `syncScalef()`, đã có Coolify Scheduled Task hàng ngày) trả về 225 event thật,
+    mỗi event có field `reward` (chuỗi tự do, vd "20đ/view") + `partner.name` — nằm sẵn trong
+    `scalef_events.raw` từ trước, chỉ chưa ai đọc field `reward` (Module 4 ghi rõ "chỉ thu thập
+    sẵn cho module auto-brief sau này" — đúng module này).
+  - **Khảo sát thật 193/225 event có field `reward`**: 139 (72%) theo VIEW (kể cả lỗi chính tả
+    "13d/view", viết hoa "15đ/View"), 10 (5%) theo POST (vd "120.000đ/post"), 41 (21%) số trần
+    không đơn vị (vd "15", "0"), 2 rác (vd "Gahahha" — ai đó gõ nhầm khi tạo event trên ScaleF).
+  - **CFO xác nhận qua Plan Mode** (giảm mạnh độ phức tạp so với lo ngại ban đầu): giá/view ScaleF
+    = ĐÚNG giá `Campaign.pricePerView` (không markup); event trả theo POST → bỏ qua, không tự quy
+    đổi; chỉ tự đề xuất `pricePerView` (`fixedCostPerView` vẫn CFO tự điền, không có nguồn ScaleF
+    cho số này); KHÔNG thêm versioning theo tháng — "duyệt" = ghi thẳng vào `Campaign.pricePerView`
+    hiện có, đúng cách CFO đang dùng hôm nay.
+  - **Schema**: thêm `Campaign.scalefEventId` (nullable, `@unique`, migration additive không đụng
+    dữ liệu cũ — khác Vấn đề 2 không cần viết tay SQL).
+  - **`src/server/campaigns/scalef-policy.ts`** (mới): `parseScalefReward()` (hàm thuần, phân loại
+    per_view/per_post/ambiguous/unparseable/empty — verify khớp đúng tỷ lệ khảo sát trên toàn bộ
+    225 event thật) + `findScalefPolicyCandidates()` (khớp `Campaign.brandName` ↔
+    `ScalefEvent.raw.partner.name` bằng đúng `brandsOverlap()` đã viết cho Vấn đề 3, export lại để
+    dùng chung — không viết lại logic khớp brand).
+  - **3 action mới trong `src/server/actions/campaigns.ts`** (`requireSystemAdmin`, cùng mức
+    quyền `upsertCampaignRewardTerms`): `dismissScalefPolicyMatch` (ghi audit, giống Vấn đề 3),
+    `linkScalefEvent` (set `scalefEventId`; nếu form có `applyPrice` VÀ campaign chưa có
+    `pricePerView` riêng → cập nhật thêm trong CÙNG 1 lần — cố tình KHÔNG gọi
+    `upsertCampaignRewardTerms` vì action đó ghi đè cả 3 field cùng lúc, sẽ vô tình null hóa
+    `fixedCostPerView`/`costCeilingPct` đã có), `unlinkScalefEvent`.
+  - **UI `/campaigns/scalef-policy`** (cùng khung `/campaigns/matching`): mỗi cặp hiện brand +
+    reward nguyên văn + nhãn phân loại; chỉ cặp `per_view` VÀ campaign chưa có giá mới hiện ô số
+    điền sẵn + nút "Liên kết & áp dụng giá này", còn lại chỉ "Liên kết" (không đụng giá) kèm lý do
+    rõ ràng. Mục riêng liệt kê campaign đã liên kết + nút "Gỡ liên kết". Badge trên `/campaigns`
+    ("N campaign chưa liên kết ScaleF event", system admin). Trang chi tiết campaign: mục "Cơ chế
+    thưởng MM" có sẵn hiện thêm dòng gợi ý + pre-fill `pricePerView` khi đã liên kết nhưng chưa có
+    giá (CFO vẫn phải bấm "Lưu cơ chế" mới áp dụng thật).
+  - **Verify thật trên browser** (session CFO có sẵn): `/campaigns/scalef-policy` hiện đúng các
+    cặp thật (Techcombank "24Đ" không rõ đơn vị chỉ có nút Liên kết; HDBank 10 event ứng viên đều
+    đã có giá 10đ/view nên không ghi đè; Katinat/Lusso/Nha Khoa Parkway/FPT Shop chưa có giá hiện
+    đúng ô điền sẵn cho các event per_view, ẩn hẳn với event per_post/ambiguous). Bấm "Liên kết &
+    áp dụng giá" cho Lusso (event 15đ/view) → xác nhận `scalef_event_id` + `price_per_view=15`
+    được ghi đúng trong 1 lần, vào `/campaigns/[id]` thấy giá đã điền trong form cơ chế thưởng.
+    Bấm "Liên kết" (không giá) cho HDBank (đã có giá 10đ/view sẵn) → xác nhận `price_per_view`
+    KHÔNG đổi, chỉ `scalef_event_id` được set — đúng nguyên tắc không ghi đè. **Đã dọn dữ liệu
+    test sau verify** (revert `scalef_event_id`/`price_per_view`/audit_logs qua SQL) — DB quay lại
+    đúng 322 video/38 campaign/14 campaign_managers/0 campaign liên kết ScaleF như trước khi
+    verify. `npm run build` sạch.
+  - **Chưa làm, đã cân nhắc loại bỏ chủ động**: không tự quy đổi giá/post sang giá/view, không tự
+    đề xuất `fixedCostPerView`/`costCeilingPct`, không thêm versioning theo tháng, không tự động
+    khớp/liên kết (luôn qua duyệt tay), không thêm `ScalefVideo.scalefEventId` (tín hiệu củng cố
+    thêm cho việc khớp — để dành khi việc ghép tay Talent-ScaleF ở `/scalef` tiến triển hơn, hiện
+    vẫn 0/145).
+  - **Kết luận chuỗi 3 vấn đề (2026-07-24, Vấn đề 3→2→1)**: cả 3 phần đã hoàn thành theo đúng thứ
+    tự CFO yêu cầu (dữ liệu sạch → schema nhiều MM → chính sách thưởng ScaleF), mỗi phần đều qua
+    Plan Mode riêng, có câu hỏi làm rõ nghiệp vụ trước khi code, và verify bằng dữ liệu thật trên
+    browser (không chỉ tin theo thiết kế). Phát hiện chung xuyên suốt: nhiều phần tưởng phức tạp
+    hóa ra đã có sẵn hạ tầng hoặc đã tự hoạt động đúng (Vấn đề 2: công thức lương đã tách theo MM
+    sẵn; Vấn đề 1: dữ liệu ScaleF đã cào sẵn) — luôn đọc code + dữ liệu thật trước khi thiết kế
+    thêm, tránh xây trùng hoặc phức tạp hóa không cần thiết.
 
 ---
 
