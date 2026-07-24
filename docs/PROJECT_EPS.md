@@ -510,6 +510,58 @@ Rủi ro đã chấp nhận:
   - Không làm (theo đúng prompt gốc): không bảng `brands`/`brand_aliases` riêng, không cơ chế
     "adopt" tách khỏi việc set `mmId`, không khớp campaign lịch sử 14 dòng `MANUAL` cũ với
     Ambassador mới.
+- **2026-07-24 — Deploy production thật lên CloudFly VPS + Coolify (HOÀN THÀNH).** Trước đó mục
+  "Tech stack" chỉ ghi "dự kiến" — giờ đã chạy thật, không còn là kế hoạch.
+  - **Hạ tầng**: CloudFly VPS Việt Nam (Ubuntu 24.04, 2 vCPU/4GB RAM/40GB SSD, IP
+    `222.255.181.19`) + Coolify (self-hosted PaaS, quản lý qua `http://222.255.181.19:8000`).
+    Từng thử Oracle Cloud Free trước nhưng không tạo được tài khoản (lỗi xác minh danh tính) —
+    chuyển sang CloudFly vì có sẵn (đã nạp tiền), 4GB RAM đủ thoải mái cho Coolify (chính nó ăn
+    ~1-2GB) + app + Postgres, không cần ép dùng VPS 1GB free kiểu Google Cloud e2-micro (bỏ hẳn
+    hướng đó vì Coolify không vừa RAM).
+  - **Nixpacks (buildpack mặc định của Coolify) KHÔNG dùng được** — bản Coolify 4.1.2 đang ghim 1
+    snapshot nixpkgs quá cũ (giữa 2025), không có Node bản nào đạt tối thiểu của Prisma 7
+    (`20.19+/22.12+/24.0+`): thử `NIXPACKS_NODE_VERSION=22` → resolve 22.11.0 (thiếu), `=24` →
+    không tồn tại trong snapshot, `=20` → resolve 20.18.1 (thiếu). Chuyển hẳn sang **Dockerfile tự
+    viết** (`Dockerfile` ở root, `node:24-slim` từ Docker Hub, không phụ thuộc nixpkgs của Coolify
+    nữa) — build 2 stage, cài `openssl` (Prisma engine cần, `node:24-slim` không có sẵn), copy đủ
+    `node_modules`/`.next`/`public`/`src`/`prisma`/`prisma.config.ts`/`scripts` sang runtime image
+    (thiếu bất kỳ thư mục nào trong số này đều làm `tsx`-run script hoặc `prisma migrate` lỗi
+    "Cannot find module"/"schema not found" — đã vấp phải từng cái một, nay Dockerfile đã đủ).
+  - **Migration chạy trong `CMD` của container, KHÔNG dùng Coolify "Pre-deployment Command"** —
+    phát hiện quan trọng: Pre-deployment Command của Coolify chạy **trong container CŨ đang sống**
+    (chuẩn bị trước khi swap), không phải image mới, nên vừa sai logic (migrate bằng migration
+    files cũ) vừa từng gây deadlock thật (container cũ lỗi → pre-deploy luôn fail → Coolify huỷ
+    toàn bộ deploy trước khi kịp build image mới sửa lỗi). Dockerfile hiện có `CMD ["sh", "-c",
+    "npx prisma migrate deploy && npm start"]` — luôn chạy bằng migration files của bản đang lên,
+    đúng lúc trước khi nhận traffic, an toàn chạy lại nhiều lần (Prisma tự bỏ qua migration đã áp
+    dụng).
+  - **Domain**: chưa có domain thật, dùng tạm `eps-platform.duckdns.org` (free, trỏ về
+    `222.255.181.19`) — SSL Let's Encrypt tự động qua Coolify hoạt động bình thường trên DuckDNS
+    (khác domain `sslip.io` Coolify cấp mặc định lúc đầu — sslip.io bị Let's Encrypt rate-limit
+    vì quá nhiều người dùng chung, KHÔNG cấp được SSL, đã thử và thất bại trước khi đổi sang
+    DuckDNS). Đổi sang domain thật sau này chỉ cần sửa lại ô Domains trong Coolify + trỏ DNS,
+    không đụng code.
+  - **Postgres**: dùng Coolify managed database (không dùng `docker-compose.yml` trong repo —
+    file đó giữ lại chỉ cho dev local qua `docker compose up -d`), có backup tự động built-in của
+    Coolify (đã cấu hình lịch backup, không tự viết script `pg_dump` riêng).
+  - **2 Coolify Scheduled Task** thay cho launchd job cũ trên máy CFO: `scalef-sync` (`npm run
+    scalef:sync`, 2:00 sáng) + `ambassador-sync` (`npm run sync:ambassador`, 2:30 sáng) — cố định
+    giờ hàng ngày, không cần cơ chế poll-30-phút-tự-throttle của launchd (VPS chạy 24/7, không có
+    khái niệm máy tắt/ngủ cần bù như laptop).
+  - **Bỏ hard-code mật khẩu `"doimatkhau123"`** trong `prisma/seed.ts` + `scripts/import-talents.ts`
+    trước khi seed production — mỗi tài khoản mới tạo giờ có mật khẩu ngẫu nhiên riêng
+    (`scripts/lib/random-password.ts`, 14 ký tự, loại ký tự dễ nhầm 0/O/1/l/I), in ra 1 lần duy
+    nhất lúc tạo để gửi riêng từng người, không còn mật khẩu mặc định dùng chung.
+  - **Nếu sau này đổi VPS/nhà cung cấp khác** (CFO có nhắc khả năng chuyển sang Google Cloud hoặc
+    nơi khác): vì Coolify tự host (không phải dịch vụ managed của 1 hãng cụ thể), đổi hạ tầng thực
+    chất là đổi VPS chạy Coolify — không phải đổi cách deploy app hay sửa code. Cần làm: (1) cài
+    Coolify mới trên VPS mới (đúng quy trình đã làm ở trên), (2) `pg_dump` từ Postgres VPS cũ,
+    restore vào Postgres VPS mới (Coolify managed database), (3) đổi DNS domain trỏ sang IP mới,
+    (4) tạo lại 2 Scheduled Task + copy các biến môi trường (đối chiếu `.env.example`). Không cần
+    sửa `Dockerfile`/code app.
+  - Verify E2E thật: build qua Dockerfile thành công, migrate 12 migration áp dụng đủ, seed tạo 4
+    tài khoản (CFO/2 MM/Tech), đăng nhập CFO qua `https://eps-platform.duckdns.org` thành công,
+    chứng chỉ SSL hợp lệ (`SSL certificate verify ok`, Let's Encrypt).
 - Bộ prompt sẵn cho từng module (CFO copy vào chat mới, mỗi module 1 chat): `docs/MODULE_PROMPTS.md`.
 - File gốc `PROJECT_EPS.txt` (bị lỗi encoding) đã được thay bằng file này; có thể xóa file cũ.
 
