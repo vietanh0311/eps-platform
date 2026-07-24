@@ -99,7 +99,6 @@ Tất cả ──→ Dashboard + Insight theo role
 | source | enum `AMBASSADOR \| MANUAL \| INTERNAL` | **Đổi so với bản đầu** (`SCALEF→MANUAL`, `OTHER→INTERNAL`) — ScaleF không phải nguồn campaign, nó là bước nộp video (đã có ở `videos.scalef_submitted_*`). `INTERNAL` cho việc nội bộ không phải campaign brand (đối chiếu dữ liệu cũ: "Booking", "Build Kênh", "Aff" — xem Module 2 phần import) |
 | brief | text | nội dung brief — **MM viết/sửa tự do, đồng bộ không bao giờ đụng cột này** |
 | contract_value | int (VND), nullable | giá trị booking nếu có |
-| mm_id | FK → users, **nullable** | MM phụ trách — **đổi từ NOT NULL**: campaign đồng bộ về chưa có ai nhận, MM tự set khi bắt đầu làm. Danh sách "của tôi" = `mm_id = tôi`; "chưa nhận" = `mm_id IS NULL` |
 | start_date / end_date | date | Quy đổi GMT+7 lúc ghi (xem cảnh báo múi giờ bên dưới), không lưu UTC thô |
 | status | enum `NEW \| RUNNING \| DONE` | Vận hành EPS, không phải trạng thái trên Ambassador. Tự chuyển `NEW → RUNNING` khi có assignment đầu tiên; `→ DONE` là thủ công |
 | notes | text, nullable | |
@@ -112,14 +111,35 @@ Tất cả ──→ Dashboard + Insight theo role
 | internal_deadline | date, nullable | "Deadline" nội bộ MM tự đặt — khác `end_date` của Ambassador |
 | is_urgent | boolean, default false | cột "Mức độ" (Khẩn cấp) trong sheet cũ |
 | raw | JSONB, nullable | Payload gốc từ Ambassador, **ghi đè mỗi lần sync** — đủ để debug khi API đổi cấu trúc, không cần bảng snapshot lịch sử riêng |
+| merged_into_id | FK → campaigns, nullable, self-relation | **Thêm 2026-07-24 (Vấn đề 3)** — CFO/Tech duyệt tay tại `/campaigns/matching` xác nhận 2 campaign (thường 1 `MANUAL` + 1 `AMBASSADOR` cùng brand) là cùng 1 đợt thật, gộp toàn bộ `videos`/`campaign_assignments`/`expenses`/`campaign_managers` sang campaign kia. `null` = hoạt động bình thường; có giá trị = đã gộp, chỉ đọc, ẩn khỏi nơi chọn campaign đang hoạt động. Không xóa campaign (đúng nguyên tắc không xóa đã áp dụng cho Ambassador sync) |
+| scalef_event_id | FK → scalef_events, nullable, `@unique` | **Thêm 2026-07-24 (Vấn đề 1)** — CFO/Tech duyệt tay tại `/campaigns/scalef-policy` xác nhận đúng ScaleF Event thật ứng với campaign này (khớp gợi ý theo `brand_name` ↔ `raw.partner.name`). Dùng để đọc `raw.reward` làm gợi ý `price_per_view` — không tự động khớp/áp dụng, CFO luôn xem/sửa/duyệt qua form "Cơ chế thưởng MM" có sẵn |
 
 **Ai làm chủ cột nào** (quy tắc chống đồng bộ ghi đè dữ liệu người nhập — thực thi bằng cách hàm sync chỉ liệt kê đúng các cột này trong `update`, không dùng `update: {...payload}`):
 
 | Đồng bộ ghi đè (Ambassador làm chủ) | Người dùng sở hữu (đồng bộ không bao giờ đụng) |
 |---|---|
 | `desc_html`, `source_url`, `cover_url` | `name` (chỉ seed lúc tạo mới, sau đó MM đổi tự do) |
-| `start_date`, `end_date`, `last_synced_at`, `raw` | `brief`, `notes`, `mm_id`, `status`, `contract_value` |
+| `start_date`, `end_date`, `last_synced_at`, `raw` | `brief`, `notes`, bảng `campaign_managers`, `status`, `contract_value` |
 | | `order_video_count`, `internal_deadline`, `is_urgent`, `brand_name` |
+
+### campaign_managers (mới, 2026-07-24 — Vấn đề 2)
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| id | cuid PK | |
+| campaign_id | FK → campaigns, `onDelete: Cascade` | |
+| user_id | FK → users | |
+| assigned_at | timestamp | |
+
+*(Unique `(campaign_id, user_id)`.)* Thay cho `campaigns.mm_id` (1 FK nullable duy nhất) — campaign
+giờ hỗ trợ **nhiều MM cùng phụ trách** (không giới hạn số lượng). Rỗng = "chưa nhận" (thay
+`mm_id IS NULL` cũ); có ≥1 dòng = "của tôi" nếu user nằm trong đó. MM tự thêm chính mình bất kỳ
+lúc nào (tự phục vụ, không cần CFO duyệt — `joinCampaignManager`); **gỡ chỉ system admin làm được**
+(`removeCampaignManager`, CFO xác nhận việc này nhạy cảm hơn tự thêm). **Quan trọng: bảng này
+KHÔNG liên quan tới công thức lương** — `src/server/payroll/compute.ts` tính hoa hồng MM theo
+`talent.manager_id` (Talent của ai) trong từng campaign, hoàn toàn độc lập với ai đứng tên ở đây;
+2 MM cùng phụ trách 1 campaign tự động được trả đúng theo phần việc thật (video/Talent riêng của
+mình) mà không cần thêm logic chia thưởng nào — đã verify bằng dữ liệu thật (xem
+`docs/PROJECT_EPS.md` mục Vấn đề 2).
 
 ### campaign_assignments
 | Cột | Kiểu | Ghi chú |
@@ -293,8 +313,11 @@ Hiện trên dashboard Tech — scraper gãy là phát hiện trong ngày.
 | raw | JSONB, nullable | payload gốc, ghi đè mỗi lần sync — cùng kiểu `campaigns.raw` |
 | last_synced_at | timestamp, nullable | |
 
-Chỉ **thu thập sẵn** cho module auto-brief campaign sau này (chưa làm) — sync ScaleF Module 4 chỉ
-upsert nguyên trạng, không xử lý/dùng gì ở đây. Tận dụng vì worker đã đăng nhập/đang chạy sẵn.
+Ban đầu chỉ **thu thập sẵn**, không xử lý gì — **Vấn đề 1 (2026-07-24) đã dùng tới**: field
+`raw.reward` (chuỗi tự do do brand tự gõ trên ScaleF, vd `"20đ/view"`, `"120.000đ/post"`) được
+parse bằng `parseScalefReward()` (`src/server/campaigns/scalef-policy.ts`) để đề xuất
+`campaigns.price_per_view` cho CFO duyệt tại `/campaigns/scalef-policy`; `raw.partner.name` dùng
+để khớp với `campaigns.brand_name`. Xem `campaigns.scalef_event_id` bên dưới nhóm 3.
 
 ## Nhóm 6 — Lương & thưởng
 

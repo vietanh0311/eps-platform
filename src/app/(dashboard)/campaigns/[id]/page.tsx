@@ -1,16 +1,24 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { campaignScopeWhere, canClaimCampaign, canEditCampaign, requireUser, talentScopeWhere } from "@/lib/authz";
+import {
+  campaignScopeWhere,
+  canEditCampaign,
+  canJoinCampaignManager,
+  requireUser,
+  talentScopeWhere,
+} from "@/lib/authz";
 import { isSystemAdmin } from "@/lib/roles";
 import {
   assignTalent,
-  claimCampaign,
+  joinCampaignManager,
   removeAssignment,
+  removeCampaignManager,
   updateAssignmentStatus,
   updateCampaign,
 } from "@/server/actions/campaigns";
 import { upsertCampaignRewardTerms } from "@/server/actions/payroll";
+import { parseScalefReward } from "@/server/campaigns/scalef-policy";
 import { CampaignForm } from "@/components/campaign-form";
 import {
   ASSIGNMENT_STATUS_LABELS,
@@ -42,17 +50,19 @@ export default async function CampaignDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; saved?: string }>;
+  searchParams: Promise<{ error?: string; saved?: string; merged?: string }>;
 }) {
   const user = await requireUser();
   const { id } = await params;
-  const { error, saved } = await searchParams;
+  const { error, saved, merged } = await searchParams;
 
   // MM chỉ xem được campaign của mình (scope áp cả ở màn chi tiết)
   const campaign = await prisma.campaign.findFirst({
     where: { id, ...campaignScopeWhere(user) },
     include: {
-      mm: true,
+      managers: { include: { user: { select: { id: true, fullName: true } } } },
+      mergedInto: { select: { id: true, name: true } },
+      scalefEvent: { select: { name: true, raw: true } },
       assignments: {
         include: { talent: { include: { manager: true } }, assignedBy: true },
         orderBy: { createdAt: "asc" },
@@ -66,9 +76,13 @@ export default async function CampaignDetailPage({
   });
   if (!campaign) notFound();
 
-  const editable = canEditCampaign(user, campaign.mmId);
-  const claimable = canClaimCampaign(user, campaign);
-  const managers =
+  const managerUserIds = campaign.managers.map((m) => m.userId);
+  const editable = canEditCampaign(user, managerUserIds, campaign.mergedIntoId);
+  // Vấn đề 2 — MM tự "Cùng quản lý" (tự phục vụ, không cần CFO duyệt); system admin thêm được
+  // bất kỳ MM nào chưa có trong danh sách qua <select>. Gỡ MM chỉ system admin (canRemoveCampaignManager).
+  const currentManagerIds = new Set(managerUserIds);
+  const canJoinSelf = canJoinCampaignManager(user, user.id, campaign) && !currentManagerIds.has(user.id);
+  const allMms =
     user.role === "MM"
       ? [{ id: user.id, fullName: user.name }]
       : await prisma.user.findMany({
@@ -76,6 +90,13 @@ export default async function CampaignDetailPage({
           select: { id: true, fullName: true },
           orderBy: { fullName: "asc" },
         });
+  const joinableMms = isSystemAdmin(user.role) ? allMms.filter((m) => !currentManagerIds.has(m.id)) : [];
+
+  // Vấn đề 1 — gợi ý pricePerView từ ScaleF event đã liên kết (chỉ khi chưa có giá riêng).
+  const scalefEventRaw = campaign.scalefEvent?.raw as { reward?: string } | null | undefined;
+  const scalefReward = scalefEventRaw ? parseScalefReward(scalefEventRaw.reward) : null;
+  const scalefSuggestedPrice =
+    campaign.pricePerView == null && scalefReward?.kind === "per_view" ? scalefReward.value : null;
 
   // Talent được phép giao: MM chỉ thấy Talent mình quản lý.
   const assignableTalents = editable
@@ -110,12 +131,27 @@ export default async function CampaignDetailPage({
           Đã lưu thay đổi
         </p>
       ) : null}
+      {merged ? (
+        <p className="max-w-xl rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
+          Đã gộp campaign khác vào đây thành công.
+        </p>
+      ) : null}
+
+      {campaign.mergedInto ? (
+        <p className="max-w-xl rounded-md bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
+          Campaign này đã gộp vào{" "}
+          <Link href={`/campaigns/${campaign.mergedInto.id}`} className="font-medium underline">
+            {campaign.mergedInto.name}
+          </Link>{" "}
+          — chỉ đọc, video/Talent giao trước đó đã chuyển sang campaign đích.
+        </p>
+      ) : null}
 
       {editable ? (
         <CampaignForm
           action={updateAction}
           campaign={campaign}
-          managers={managers}
+          managers={allMms}
           submitLabel="Lưu thay đổi"
         />
       ) : (
@@ -125,8 +161,6 @@ export default async function CampaignDetailPage({
             <dd>{campaign.brandName}</dd>
             <dt className="text-muted-foreground">Nguồn</dt>
             <dd>{CAMPAIGN_SOURCE_LABELS[campaign.source]}</dd>
-            <dt className="text-muted-foreground">MM phụ trách</dt>
-            <dd>{campaign.mm ? campaign.mm.fullName : "Chưa nhận"}</dd>
             <dt className="text-muted-foreground">Thời gian</dt>
             <dd>
               {formatDate(campaign.startDate)} → {formatDate(campaign.endDate)}
@@ -157,35 +191,88 @@ export default async function CampaignDetailPage({
               <p className="whitespace-pre-wrap text-sm">{stripHtml(campaign.descHtml)}</p>
             </div>
           ) : null}
-
-          {claimable ? (
-            <form action={claimCampaign.bind(null, campaign.id)} className="flex flex-wrap items-end gap-3">
-              {!isSystemAdmin(user.role) ? null : (
-                <div className="grid gap-1">
-                  <Label htmlFor="mmId" className="text-xs">
-                    Giao cho MM
-                  </Label>
-                  <select
-                    id="mmId"
-                    name="mmId"
-                    required
-                    className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-                  >
-                    {managers.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.fullName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <Button type="submit">Nhận campaign này</Button>
-            </form>
-          ) : null}
         </div>
       )}
 
-      {isSystemAdmin(user.role) ? (
+      <Separator />
+
+      {/* Vấn đề 2 — campaign hỗ trợ NHIỀU MM cùng phụ trách. Tự phục vụ: bất kỳ MM nào cũng tự
+          "Cùng quản lý" được (không cần CFO duyệt); gỡ MM chỉ system admin làm được (việc nhạy
+          cảm hơn — CFO xác nhận qua Plan Mode). Tách hẳn khỏi CampaignForm để không lẫn 2 quyền
+          khác nhau trong cùng 1 field sửa chung. */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">MM phụ trách</h2>
+        <div className="max-w-md rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>MM</TableHead>
+                {isSystemAdmin(user.role) ? <TableHead className="text-right">Gỡ</TableHead> : null}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {campaign.managers.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={isSystemAdmin(user.role) ? 2 : 1}
+                    className="py-4 text-center text-muted-foreground"
+                  >
+                    Chưa nhận
+                  </TableCell>
+                </TableRow>
+              ) : (
+                campaign.managers.map((m) => (
+                  <TableRow key={m.id}>
+                    <TableCell>{m.user.fullName}</TableCell>
+                    {isSystemAdmin(user.role) ? (
+                      <TableCell className="text-right">
+                        <form action={removeCampaignManager.bind(null, campaign.id, m.userId)}>
+                          <Button variant="ghost" size="sm" type="submit">
+                            Gỡ
+                          </Button>
+                        </form>
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        {canJoinSelf ? (
+          <form action={joinCampaignManager.bind(null, campaign.id)}>
+            <Button type="submit" variant="secondary">
+              Cùng quản lý campaign này
+            </Button>
+          </form>
+        ) : null}
+        {isSystemAdmin(user.role) && joinableMms.length > 0 && !campaign.mergedIntoId ? (
+          <form action={joinCampaignManager.bind(null, campaign.id)} className="flex flex-wrap items-end gap-3">
+            <div className="grid gap-1">
+              <Label htmlFor="mmId" className="text-xs">
+                Thêm MM khác
+              </Label>
+              <select
+                id="mmId"
+                name="mmId"
+                required
+                className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+              >
+                {joinableMms.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.fullName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Button type="submit" variant="secondary">
+              Thêm
+            </Button>
+          </form>
+        ) : null}
+      </section>
+
+      {isSystemAdmin(user.role) && !campaign.mergedInto ? (
         <>
           <Separator />
           <section className="space-y-3">
@@ -195,6 +282,12 @@ export default async function CampaignDetailPage({
                 Dùng để tính commission MM ở mục Lương & thưởng — để trống thì campaign này bị bỏ
                 qua khi tính nháp (không tính bừa).
               </p>
+              {scalefSuggestedPrice != null ? (
+                <p className="mt-1 text-xs text-emerald-700">
+                  ScaleF gợi ý: {scalefSuggestedPrice}đ/view (từ event &quot;{campaign.scalefEvent?.name}
+                  &quot;) — đã điền sẵn bên dưới, bấm &quot;Lưu cơ chế&quot; để áp dụng thật.
+                </p>
+              ) : null}
             </div>
             <form
               action={upsertCampaignRewardTerms.bind(null, campaign.id)}
@@ -210,7 +303,7 @@ export default async function CampaignDetailPage({
                   type="number"
                   min={0}
                   className="w-32"
-                  defaultValue={campaign.pricePerView ?? ""}
+                  defaultValue={campaign.pricePerView ?? scalefSuggestedPrice ?? ""}
                 />
               </div>
               <div className="grid gap-1">

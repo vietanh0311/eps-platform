@@ -105,7 +105,7 @@ model User {
   managedTalents Talent[]   @relation("TalentManager")
   auditLogs      AuditLog[]
 
-  managedCampaigns   Campaign[]           @relation("CampaignManager")
+  campaignManagers   CampaignManager[]
   assignmentsCreated CampaignAssignment[] @relation("AssignmentCreator")
   videosLogged       Video[]              @relation("VideoLogger")
   videosSubmitted    Video[]              @relation("ScalefSubmitter")
@@ -195,9 +195,6 @@ model Campaign {
   pricePerView      Int? @map("price_per_view") // đồng/view công ty bán cho nhãn hàng
   fixedCostPerView  Int? @map("fixed_cost_per_view") // chi phí vendor buff/ads nội bộ, đồng/view
   costCeilingPct    Int? @map("cost_ceiling_pct") // % chi phí max (0-100); null = tra tier mặc định theo pricePerView
-  // Nullable: campaign đồng bộ từ Ambassador chưa có ai nhận. MM tự "Nhận" (set mmId = mình).
-  mmId          String?        @map("mm_id")
-  mm            User?          @relation("CampaignManager", fields: [mmId], references: [id])
   startDate     DateTime?      @map("start_date") @db.Date
   endDate       DateTime?      @map("end_date") @db.Date
   status        CampaignStatus @default(NEW)
@@ -208,9 +205,27 @@ model Campaign {
   // nhờ vậy chạy lại không tạo campaign trùng. NULL = campaign tạo tay.
   externalKey   String?        @unique @map("external_key")
 
+  // Vấn đề 3 (2026-07-24) — gộp campaign MANUAL (điền tay, nhóm thô theo brand) vào campaign
+  // AMBASSADOR (auto-sync) khi CFO/Tech duyệt tay xác nhận là cùng 1 campaign thật (màn
+  // /campaigns/matching). NULL = đang hoạt động bình thường. Có giá trị = đã gộp, chỉ đọc, ẩn
+  // khỏi nơi chọn campaign đang hoạt động — KHÔNG xóa (giữ để tra cứu lịch sử, cùng nguyên tắc
+  // "không bao giờ xóa campaign" đã áp dụng cho Ambassador sync).
+  mergedIntoId  String?        @map("merged_into_id")
+  mergedInto    Campaign?      @relation("CampaignMerge", fields: [mergedIntoId], references: [id])
+  mergedFrom    Campaign[]     @relation("CampaignMerge")
+
+  // Vấn đề 1 (2026-07-24) — liên kết campaign EPS với đúng ScaleF Event thật (CFO/Tech duyệt tay
+  // tại /campaigns/scalef-policy, khớp gợi ý theo brand_name ↔ raw.partner.name — cùng
+  // brandsOverlap() dùng cho Vấn đề 3, KHÔNG tự động liên kết). NULL = chưa liên kết. Dùng để đọc
+  // field `reward` trong ScalefEvent.raw (chuỗi tự do vd "20đ/view") làm GỢI Ý `pricePerView` —
+  // xem src/server/campaigns/scalef-policy.ts. @unique đảm bảo 1 event chỉ gắn đúng 1 campaign.
+  scalefEventId String?        @unique @map("scalef_event_id")
+  scalefEvent   ScalefEvent?   @relation(fields: [scalefEventId], references: [id])
+
   // ===== Các cột dưới đây do đồng bộ Ambassador làm chủ — sync GHI ĐÈ mỗi lần chạy.
-  // Cột phía trên (name/brief/mmId/status/contractValue/notes/orderVideoCount/
-  // internalDeadline/isUrgent/brandName) là của người dùng, sync KHÔNG BAO GIỜ đụng.
+  // Cột phía trên (name/brief/status/contractValue/notes/orderVideoCount/
+  // internalDeadline/isUrgent/brandName) và bảng managers (CampaignManager) là của người dùng,
+  // sync KHÔNG BAO GIỜ đụng.
   descHtml         String?   @map("desc_html") // mô tả HTML thô từ Ambassador — KHÔNG render trực tiếp, phải strip tag
   coverUrl         String?   @map("cover_url")
   lastSyncedAt     DateTime? @map("last_synced_at") // lần cuối feed còn thấy _id này
@@ -227,10 +242,30 @@ model Campaign {
   assignments CampaignAssignment[]
   videos      Video[]
   expenses    Expense[]
+  managers    CampaignManager[]
 
   @@index([status])
-  @@index([mmId])
+  @@index([mergedIntoId])
   @@map("campaigns")
+}
+
+// Vấn đề 2 (2026-07-24) — Campaign hỗ trợ NHIỀU MM cùng phụ trách (đổi từ Campaign.mmId 1 FK
+// nullable duy nhất). Không giới hạn số MM/campaign. `canEditCampaign`/`campaignScopeWhere`
+// (src/lib/authz.ts) kiểm tra thành viên qua bảng này thay vì so sánh 1 giá trị. Lưu ý quan
+// trọng: công thức lương (src/server/payroll/compute.ts) KHÔNG dùng bảng này để tính tiền — MM
+// được trả theo đúng Talent mình quản lý (talent.managerId) trong từng campaign, độc lập với ai
+// đứng tên phụ trách ở đây. Bảng này chỉ quyết định AI được sửa brief/giao Talent/thấy "của tôi".
+model CampaignManager {
+  id         String   @id @default(cuid())
+  campaignId String   @map("campaign_id")
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id])
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  @@unique([campaignId, userId])
+  @@index([userId])
+  @@map("campaign_managers")
 }
 
 model CampaignAssignment {
@@ -415,6 +450,8 @@ model ScalefEvent {
   lastSyncedAt  DateTime? @map("last_synced_at")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  campaign      Campaign?
 
   @@map("scalef_events")
 }

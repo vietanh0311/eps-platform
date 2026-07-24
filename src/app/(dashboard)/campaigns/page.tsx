@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { campaignScopeWhere, requireUser } from "@/lib/authz";
 import { isSystemAdmin } from "@/lib/roles";
 import { syncAmbassadorNow } from "@/server/actions/campaigns";
+import { findMatchCandidates } from "@/server/campaigns/matching";
+import { findScalefPolicyCandidates } from "@/server/campaigns/scalef-policy";
 import {
   CAMPAIGN_SOURCE_LABELS,
   CAMPAIGN_STATUS_LABELS,
@@ -33,16 +35,18 @@ export default async function CampaignsPage({
     claim?: string;
     synced?: string;
     error?: string;
+    showMerged?: string;
   }>;
 }) {
   const user = await requireUser();
-  const { q, status, mm, claim, synced, error } = await searchParams;
+  const { q, status, mm, claim, synced, error, showMerged } = await searchParams;
 
   const where: Prisma.CampaignWhereInput = { ...campaignScopeWhere(user) };
+  if (!showMerged) where.mergedIntoId = null;
   if (status && status in CAMPAIGN_STATUS_LABELS) where.status = status as CampaignStatus;
-  if (mm && user.role !== "MM") where.mmId = mm;
-  if (claim === "mine") where.mmId = user.id;
-  if (claim === "unclaimed") where.mmId = null;
+  if (mm && user.role !== "MM") where.managers = { some: { userId: mm } };
+  if (claim === "mine") where.managers = { some: { userId: user.id } };
+  if (claim === "unclaimed") where.managers = { none: {} };
   if (q) {
     where.OR = [
       { name: { contains: q, mode: "insensitive" } },
@@ -50,10 +54,13 @@ export default async function CampaignsPage({
     ];
   }
 
-  const [campaigns, managers, lastSync] = await Promise.all([
+  const [campaigns, managers, lastSync, matchCandidateCount, scalefPolicyCandidateCount] = await Promise.all([
     prisma.campaign.findMany({
       where,
-      include: { mm: true, _count: { select: { assignments: true, videos: true } } },
+      include: {
+        managers: { include: { user: { select: { fullName: true } } } },
+        _count: { select: { assignments: true, videos: true } },
+      },
       orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     }),
     user.role === "MM"
@@ -63,6 +70,10 @@ export default async function CampaignsPage({
       where: { source: "ambassador_campaigns" },
       orderBy: { startedAt: "desc" },
     }),
+    // Vấn đề 3 — chỉ system admin cần biết còn bao nhiêu cặp MANUAL↔AMBASSADOR chưa duyệt.
+    isSystemAdmin(user.role) ? findMatchCandidates().then((c) => c.length) : Promise.resolve(0),
+    // Vấn đề 1 — chỉ system admin cần biết còn bao nhiêu cặp Campaign↔ScaleF Event chưa duyệt.
+    isSystemAdmin(user.role) ? findScalefPolicyCandidates().then((c) => c.length) : Promise.resolve(0),
   ]);
 
   const canCreate = isSystemAdmin(user.role) || user.role === "MM";
@@ -77,6 +88,18 @@ export default async function CampaignsPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {isSystemAdmin(user.role) && matchCandidateCount > 0 ? (
+            <Button asChild variant="outline">
+              <Link href="/campaigns/matching">{matchCandidateCount} cặp nghi ngờ trùng cần duyệt</Link>
+            </Button>
+          ) : null}
+          {isSystemAdmin(user.role) && scalefPolicyCandidateCount > 0 ? (
+            <Button asChild variant="outline">
+              <Link href="/campaigns/scalef-policy">
+                {scalefPolicyCandidateCount} campaign chưa liên kết ScaleF event
+              </Link>
+            </Button>
+          ) : null}
           <form action={syncAmbassadorNow}>
             <Button type="submit" variant="outline">
               Đồng bộ Ambassador ngay
@@ -120,6 +143,14 @@ export default async function CampaignsPage({
         <Link href="/campaigns" className="rounded-md border px-3 py-2 text-sm hover:bg-accent">
           Tất cả
         </Link>
+        {isSystemAdmin(user.role) ? (
+          <Link
+            href={showMerged ? "/campaigns" : "/campaigns?showMerged=1"}
+            className="rounded-md border px-3 py-2 text-sm hover:bg-accent"
+          >
+            {showMerged ? "Ẩn campaign đã gộp" : "Xem cả campaign đã gộp"}
+          </Link>
+        ) : null}
       </div>
 
       <form className="flex flex-wrap items-end gap-3" method="GET">
@@ -220,9 +251,18 @@ export default async function CampaignsPage({
                   <TableCell className="text-sm">{c.brandName}</TableCell>
                   <TableCell className="text-xs">
                     <Badge variant="outline">{CAMPAIGN_SOURCE_LABELS[c.source]}</Badge>
+                    {c.mergedIntoId ? (
+                      <Badge variant="secondary" className="ml-1">
+                        Đã gộp
+                      </Badge>
+                    ) : null}
                   </TableCell>
                   <TableCell className="text-sm">
-                    {c.mm ? c.mm.fullName : <span className="text-muted-foreground">Chưa nhận</span>}
+                    {c.managers.length > 0 ? (
+                      c.managers.map((m) => m.user.fullName).join(", ")
+                    ) : (
+                      <span className="text-muted-foreground">Chưa nhận</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {c.startDate || c.endDate

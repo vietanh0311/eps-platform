@@ -90,6 +90,8 @@ export async function createVideos(formData: FormData) {
   if (d.campaignId) {
     const campaign = await prisma.campaign.findUnique({ where: { id: d.campaignId } });
     if (!campaign) redirect(`/videos/new?error=${encodeURIComponent("Campaign không tồn tại")}`);
+    if (campaign.mergedIntoId)
+      redirect(`/videos/new?error=${encodeURIComponent("Campaign đã gộp vào campaign khác, chọn campaign đích")}`);
     campaignId = campaign.id;
   }
 
@@ -163,6 +165,13 @@ export async function updateVideo(videoId: string, formData: FormData) {
   const cost = Number(d.productionCost.replace(/\D/g, ""));
   if (!Number.isFinite(cost) || cost < 0) {
     redirect(`/videos/${videoId}?error=${encodeURIComponent("Chi phí sản xuất không hợp lệ")}`);
+  }
+
+  if (d.campaignId) {
+    const campaign = await prisma.campaign.findUnique({ where: { id: d.campaignId } });
+    if (!campaign) redirect(`/videos/${videoId}?error=${encodeURIComponent("Campaign không tồn tại")}`);
+    if (campaign.mergedIntoId)
+      redirect(`/videos/${videoId}?error=${encodeURIComponent("Campaign đã gộp vào campaign khác, chọn campaign đích")}`);
   }
 
   const newAirDate = new Date(d.airDate);

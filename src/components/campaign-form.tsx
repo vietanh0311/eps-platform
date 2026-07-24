@@ -77,22 +77,27 @@ export function CampaignForm({
             ))}
           </select>
         </div>
-        <div className="grid gap-2">
-          <Label htmlFor="mmId">MM phụ trách *</Label>
-          <select
-            id="mmId"
-            name="mmId"
-            required
-            defaultValue={campaign?.mmId ?? managers[0]?.id ?? ""}
-            className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs"
-          >
-            {managers.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.fullName}
-              </option>
-            ))}
-          </select>
-        </div>
+        {!campaign ? (
+          <div className="grid gap-2">
+            <Label htmlFor="mmId">MM phụ trách *</Label>
+            <select
+              id="mmId"
+              name="mmId"
+              required
+              defaultValue={managers[0]?.id ?? ""}
+              className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs"
+            >
+              {managers.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.fullName}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Thêm MM thứ 2 trở đi ở mục &quot;MM phụ trách&quot; sau khi tạo xong.
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-4">

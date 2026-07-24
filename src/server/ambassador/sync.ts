@@ -2,7 +2,7 @@
 // `campaigns` hiện có (externalKey = "ambassador:<_id>"), cùng danh sách với campaign tạo tay.
 // Thiết kế đầy đủ: docs/DB_SCHEMA.md nhóm 3. Nguyên tắc chống ghi đè: sync CHỈ ghi đè các cột
 // Ambassador làm chủ (descHtml/sourceUrl/coverUrl/startDate/endDate/lastSyncedAt/raw) — không bao
-// giờ đụng name/brief/mmId/status/contractValue/notes/orderVideoCount/internalDeadline/isUrgent/
+// giờ đụng name/brief/status/contractValue/notes/orderVideoCount/internalDeadline/isUrgent/
 // brandName (người dùng sở hữu). Cùng dạng bài với src/server/scalef/sync.ts (Module 4, đã verify
 // thật): advisory lock chống chạy chồng, validate trước khi ghi DB, luôn ghi 1 dòng log.
 import { prisma } from "@/lib/prisma";
@@ -77,7 +77,6 @@ export async function syncAmbassadorCampaigns(trigger: "CRON" | "MANUAL"): Promi
           brandName,
           source: "AMBASSADOR",
           status: "NEW",
-          mmId: null,
           sourceUrl: item.action.value,
           descHtml: item.desc,
           coverUrl,
@@ -87,7 +86,7 @@ export async function syncAmbassadorCampaigns(trigger: "CRON" | "MANUAL"): Promi
           raw: item as object,
         },
         // Chỉ liệt kê tường minh cột Ambassador làm chủ — KHÔNG spread nguyên payload, để không
-        // vô tình ghi đè name/brief/mmId/status/contractValue/notes/orderVideoCount/
+        // vô tình ghi đè name/brief/status/contractValue/notes/orderVideoCount/
         // internalDeadline/isUrgent/brandName mà người dùng đã tự sửa.
         update: {
           descHtml: item.desc,
